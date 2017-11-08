@@ -1,0 +1,13 @@
+20170922: ac127-050-40x_EC, ac127-050-40x_plan
+20170926: comar_40x_plan
+20170928: comar_40x_achromat
+20170929: pilens_2_ss
+  NB had to change camera settings - instead of ISO 100 and then halving the exposure time, used ISO 320 and did not decrease the exposure time after fixing the camera settings.
+20171003: thorlabs_100x_plan
+  Due to the smaller step sizes needed, I added a line of code to reduce the backlash value for the distortion measurements (otherwise it moved back and forth between each pair of images, which is counterproductive).  I kept the ISO 320 and non-reduction of exposure time (100x with the same illumination should get 2.5^2 times less light).
+20171004: thorlabs_100x_EP
+  As above - but I'm now slightly worried there wasn't enough immersion oil.
+20171006: thorlabs_100x_EP_2
+  Added the backlash logic above to scan_edge (previously it was only in measure_distortion) and reduced the minimum z step to 30 (50 for autofocus), as the focal depth of the 100x objective is rather smaller.
+20171009: re-took distortion_h and distortion_v for pilens_2_ss
+  Realised the horizontal edge distortion images were moving in the wrong direction, so re-took them.
