@@ -1,0 +1,304 @@
+rwb34@PYPC-RWB34-1 MINGW64 /x/Physics/ResearchProjects/RWBowman/rwb34 - R Bowman/projects/openflexure/experiments/20170928_resolution_tests (master)
+$ winpty python analyse_usaf_image.py
+
+Analysing file datasets\pilens_2_ss\usaf_test_2_raw.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Exception: attempt to get argmin of an empty sequence
+Linear fitting gives the smallest period as 51.0217377786 pixels
+Assuming intercept is zero gives 51.579765542 +/- 0.09768520652
+Assuming smallest block is group 7, element 6,
+pixel size is 85.0 +/- 0.2 nm
+FOV is 278.8x209.5um +/- 0.19%
+diagonal is 348.7 +/- 0.7 um
+
+Analysing file datasets\pilens_2_ss\usaf_test_1a_raw.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Exception: attempt to get argmin of an empty sequence
+Linear fitting gives the smallest period as 51.0150255239 pixels
+Assuming intercept is zero gives 51.4969949648 +/- 0.0750625620343
+Assuming smallest block is group 7, element 6,
+pixel size is 85.1 +/- 0.1 nm
+FOV is 279.3x209.8um +/- 0.15%
+diagonal is 349.3 +/- 0.5 um
+
+Analysing file datasets\pilens_2_ss\usaf_test_1b_raw.jpg
+Searching for targets................................................done
+Exception: attempt to get argmin of an empty sequence
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 81.7004024887 pixels
+Assuming intercept is zero gives 81.1122923249 +/- 0.128507730124
+Assuming smallest block is group 7, element 6,
+pixel size is 54.1 +/- 0.1 nm
+FOV is 177.3x133.2um +/- 0.16%
+diagonal is 221.8 +/- 0.4 um
+
+Analysing file datasets\pilens_2_ss\usaf_test_3.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Exception: attempt to get argmin of an empty sequence
+Linear fitting gives the smallest period as 50.8932753973 pixels
+Assuming intercept is zero gives 51.5047039311 +/- 0.080202104815
+Assuming smallest block is group 7, element 6,
+pixel size is 85.1 +/- 0.1 nm
+FOV is 279.2x209.8um +/- 0.16%
+diagonal is 349.2 +/- 0.5 um
+
+Analysing file datasets\ac127_100x_plan\usaf_1.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 98.5908060959 pixels
+Assuming intercept is zero gives 101.682756298 +/- 0.292127484591
+Assuming smallest block is group 7, element 6,
+pixel size is 43.1 +/- 0.1 nm
+FOV is 141.4x106.2um +/- 0.29%
+diagonal is 176.9 +/- 0.5 um
+
+Analysing file datasets\ac127_100x_plan\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 102.904696793 pixels
+Assuming intercept is zero gives 102.181182278 +/- 0.187935058794
+Assuming smallest block is group 7, element 6,
+pixel size is 42.9 +/- 0.1 nm
+FOV is 140.7x105.7um +/- 0.18%
+diagonal is 176.0 +/- 0.3 um
+
+Analysing file datasets\pc16_40x_achromat\usaf_1.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 33.2195876407 pixels
+Assuming intercept is zero gives 33.4280426191 +/- 0.0282761426036
+Assuming smallest block is group 7, element 6,
+pixel size is 131.2 +/- 0.1 nm
+FOV is 430.2x323.2um +/- 0.08%
+diagonal is 538.1 +/- 0.5 um
+
+Analysing file datasets\pc16_40x_achromat\usaf_3.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Exception: attempt to get argmin of an empty sequence
+Linear fitting gives the smallest period as 33.340295695 pixels
+Assuming intercept is zero gives 33.5401467862 +/- 0.0592307526203
+Assuming smallest block is group 7, element 6,
+pixel size is 130.7 +/- 0.2 nm
+FOV is 428.8x322.1um +/- 0.18%
+diagonal is 536.3 +/- 0.9 um
+
+Analysing file datasets\pc16_40x_achromat\usaf_2.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 33.2280417886 pixels
+Assuming intercept is zero gives 33.4286699277 +/- 0.0275428742869
+Assuming smallest block is group 7, element 6,
+pixel size is 131.2 +/- 0.1 nm
+FOV is 430.2x323.2um +/- 0.08%
+diagonal is 538.1 +/- 0.4 um
+
+Analysing file datasets\pc16_40x_achromat\usaf_4.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 33.0129328433 pixels
+Assuming intercept is zero gives 33.509483061 +/- 0.0421373681033
+Assuming smallest block is group 7, element 6,
+pixel size is 130.8 +/- 0.2 nm
+FOV is 429.2x322.4um +/- 0.13%
+diagonal is 536.8 +/- 0.7 um
+
+Analysing file datasets\pc16_40x_achromat\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+C:\local\software\anaconda\lib\site-packages\matplotlib\pyplot.py:524: RuntimeWa
+rning: More than 20 figures have been opened. Figures created through the pyplot
+ interface (`matplotlib.pyplot.figure`) are retained until explicitly closed and
+ may consume too much memory. (To control this warning, see the rcParam `figure.
+max_open_warning`).
+  max_open_warning, RuntimeWarning)
+Linear fitting gives the smallest period as 33.010245852 pixels
+Assuming intercept is zero gives 33.5067005374 +/- 0.0423402426674
+Assuming smallest block is group 7, element 6,
+pixel size is 130.9 +/- 0.2 nm
+FOV is 429.2x322.4um +/- 0.13%
+diagonal is 536.8 +/- 0.7 um
+
+Analysing file datasets\ac127_40x_EP\usaf_1.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 40.9145744642 pixels
+Assuming intercept is zero gives 41.4187446839 +/- 0.0601749018662
+Assuming smallest block is group 7, element 6,
+pixel size is 105.9 +/- 0.2 nm
+FOV is 347.2x260.8um +/- 0.15%
+diagonal is 434.3 +/- 0.6 um
+
+Analysing file datasets\ac127_40x_EP\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 40.9511875391 pixels
+Assuming intercept is zero gives 41.3636692753 +/- 0.0513935399236
+Assuming smallest block is group 7, element 6,
+pixel size is 106.0 +/- 0.1 nm
+FOV is 347.7x261.2um +/- 0.12%
+diagonal is 434.9 +/- 0.5 um
+
+Analysing file datasets\ac127_100x_EP\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 107.291739795 pixels
+Assuming intercept is zero gives 105.068826844 +/- 0.169144960651
+Assuming smallest block is group 7, element 6,
+pixel size is 41.7 +/- 0.1 nm
+FOV is 136.9x102.8um +/- 0.16%
+diagonal is 171.2 +/- 0.3 um
+
+Analysing file datasets\pc16_40x_plan\usaf_test_1_raw.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 33.1604253599 pixels
+Assuming intercept is zero gives 33.3513091848 +/- 0.030349515439
+Assuming smallest block is group 7, element 6,
+pixel size is 131.5 +/- 0.1 nm
+FOV is 431.2x323.9um +/- 0.09%
+diagonal is 539.3 +/- 0.5 um
+
+Analysing file datasets\pc16_40x_plan\usaf_test_2_raw.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Exception: attempt to get argmin of an empty sequence
+Linear fitting gives the smallest period as 33.2257294401 pixels
+Assuming intercept is zero gives 33.3218550657 +/- 0.0299054828902
+Assuming smallest block is group 7, element 6,
+pixel size is 131.6 +/- 0.1 nm
+FOV is 431.6x324.2um +/- 0.09%
+diagonal is 539.8 +/- 0.5 um
+
+Analysing file datasets\pc16_40x_plan\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 33.1632975079 pixels
+Assuming intercept is zero gives 33.3791696246 +/- 0.0323450527885
+Assuming smallest block is group 7, element 6,
+pixel size is 131.4 +/- 0.1 nm
+FOV is 430.9x323.7um +/- 0.10%
+diagonal is 538.9 +/- 0.5 um
+
+Analysing file datasets\ac127_40x_plan\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 40.1530684317 pixels
+Assuming intercept is zero gives 40.3561208766 +/- 0.0323636999124
+Assuming smallest block is group 7, element 6,
+pixel size is 108.6 +/- 0.1 nm
+FOV is 356.4x267.7um +/- 0.08%
+diagonal is 445.7 +/- 0.4 um
+
+Analysing file datasets\longtube_100x_plan\usaf_0.jpg
+Searching for targets................................................done
+Exception: attempt to get argmin of an empty sequence
+Exception: attempt to get argmin of an empty sequence
+Searching for targets..................................................done
+Exception: attempt to get argmin of an empty sequence
+Exception: attempt to get argmin of an empty sequence
+Exception: attempt to get argmin of an empty sequence
+Linear fitting gives the smallest period as 10.8931993928 pixels
+Assuming intercept is zero gives 10.9886597426 +/- 0.0759054807692
+Assuming smallest block is group 7, element 6,
+pixel size is 399.0 +/- 2.8 nm
+FOV is 1308.8x983.2um +/- 0.69%
+diagonal is 1636.9 +/- 11.3 um
+
+Analysing file datasets\6led_webcam\usaf_1.jpg
+Searching for targets...........................done
+C:\local\software\anaconda\lib\site-packages\scipy\interpolate\fitpack2.py:224:
+UserWarning:
+The maximal number of iterations maxit (set to 20 by the program)
+allowed for finding a smoothing spline with fp=s has been reached: s
+too small.
+There is an approximation returned but the corresponding weighted sum
+of squared residuals does not satisfy the condition abs(fp-s)/s < tol.
+  warnings.warn(message)
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Searching for targets...............................done
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Linear fitting gives the smallest period as 10.2798889805 pixels
+Assuming intercept is zero gives 10.3362712468 +/- 0.010847059853
+Assuming smallest block is group 7, element 6,
+pixel size is 424.2 +/- 0.4 nm
+FOV is 271.5x203.6um +/- 0.10%
+diagonal is 339.4 +/- 0.4 um
+
+Analysing file datasets\6led_webcam\usaf_0.jpg
+Searching for targets...........................done
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Searching for targets...............................done
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Linear fitting gives the smallest period as 9.15365759888 pixels
+Assuming intercept is zero gives 9.21063792221 +/- 0.0103845299078
+Assuming smallest block is group 7, element 6,
+pixel size is 476.0 +/- 0.5 nm
+FOV is 304.7x228.5um +/- 0.11%
+diagonal is 380.8 +/- 0.4 um
+
+Analysing file datasets\ac127_100x_EP_2a\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 107.291739795 pixels
+Assuming intercept is zero gives 105.068826844 +/- 0.169144960651
+Assuming smallest block is group 7, element 6,
+pixel size is 41.7 +/- 0.1 nm
+FOV is 136.9x102.8um +/- 0.16%
+diagonal is 171.2 +/- 0.3 um
+
+Analysing file datasets\logitech_c270\usaf_1.jpg
+Searching for targets...........................done
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Searching for targets...............................done
+Exception: attempt to get argmin of an empty sequence
+Problem: spline failed for data of size 4
+Exception: (m>k) failed for hidden m: fpcurf0:m=3
+Linear fitting gives the smallest period as 10.3384388608 pixels
+Assuming intercept is zero gives 10.4811706319 +/- 0.0190362531108
+Assuming smallest block is group 7, element 6,
+pixel size is 418.3 +/- 0.8 nm
+FOV is 267.7x200.8um +/- 0.18%
+diagonal is 334.7 +/- 0.6 um
+
+Analysing file datasets\logitech_c270\usaf_0.jpg
+Searching for targets................................done
+Searching for targets........................................done
+Linear fitting gives the smallest period as 16.0799574443 pixels
+Assuming intercept is zero gives 16.1920702134 +/- 0.0281035500609
+Assuming smallest block is group 7, element 6,
+pixel size is 270.8 +/- 0.5 nm
+FOV is 346.6x195.0um +/- 0.17%
+diagonal is 397.7 +/- 0.7 um
+
+Analysing file datasets\longtube_40x_plan\usaf_0.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 141.81496532 pixels
+Assuming intercept is zero gives 152.119075357 +/- 0.394472169778
+Assuming smallest block is group 7, element 6,
+pixel size is 28.8 +/- 0.1 nm
+FOV is 94.5x71.0um +/- 0.26%
+diagonal is 118.2 +/- 0.3 um
+
+Analysing file datasets\ac127_100x_EP_bad_oil\usaf_test_raw.jpg
+Searching for targets................................................done
+Searching for targets..................................................done
+Linear fitting gives the smallest period as 105.224674829 pixels
+Assuming intercept is zero gives 105.10537558 +/- 0.19669100115
+Assuming smallest block is group 7, element 6,
+pixel size is 41.7 +/- 0.1 nm
+FOV is 136.8x102.8um +/- 0.19%
+diagonal is 171.1 +/- 0.3 um
