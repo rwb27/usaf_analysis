@@ -30,6 +30,11 @@ from contextlib import closing
 import scipy.ndimage
 import scipy.interpolate
 import itertools
+import os.path
+import os
+import sys
+from skimage.io import imread
+from matplotlib.backends.backend_pdf import PdfPages
 
 #################### Rotate the image so the bars are X/Y aligned #############
 def find_image_orientation(gray_image, fuzziness = 5):
@@ -167,25 +172,7 @@ def find_elements(image,
         best_score_index = np.argmax([m[0] for m in current_group])
         unique_matches.append(current_group[best_score_index])
     
-    # Cluster them together (each group will match a few scales) and pick the best
-    # match from each cluster - this worked well when there were only a few
-    # groups visible - but not so well when we used the whole FOV.
-    #positions = np.array([m[1] for m in filtered_matches])
-    #ms = MeanShift()
-    #ms.fit(positions)
-    #n_clusters = len(np.unique(ms.labels_))
-    #colors = itertools.cycle('bgrcmykbgrcmykbgrcmykbgrcmyk')
-    #for k, col in zip(range(n_clusters), colors):
-    #    my_members = ms.labels_ == k
-    #    cluster_center = ms.cluster_centers_[k]
-    #    plt.plot(positions[my_members, 0], positions[my_members, 1], col + '.')
-    #    plt.plot(cluster_center[0], cluster_center[1], 'o', markerfacecolor=col,
-    #             markeredgecolor='k', markersize=14)
-    elements = unique_matches#[]
-    #for i in range(n_clusters):
-    #    my_matches = [m for m, k in zip(filtered_matches, ms.labels_) if k == i]
-    #    my_scores = np.array([m[0] for m in my_matches])
-    #    elements.append(my_matches[np.argmax(my_scores)])
+    elements = unique_matches
     if return_all:
         return elements, matches
     else:
@@ -235,6 +222,9 @@ def analyse_elements(image, elements, plot=False):
     
     returns: a list of tuples, (p1, p2) for each element, where p1 and p2 are
     the distances between the two outer bars and the central bar.
+    
+    It also correlates each row of the image with the average row, which allows
+    us to correct the values for tilt.
     """
     if plot: f, axes = plt.subplots(2,len(elements))
     else: f, axes = None, [[None]*len(elements)]*2
@@ -242,9 +232,23 @@ def analyse_elements(image, elements, plot=False):
     for (score, (x, y), n), ax0, ax1 in zip(elements, axes[0], axes[1]):
         try:
             gray_roi = image[y:y+n, x:x+n]
-            if plot: ax0.imshow(gray_roi)
-            marginal = np.mean(gray_roi[n*3//17:-n*3//14, :], axis=0) 
+            marginal = np.mean(gray_roi[n*3//14:-n*3//14, :], axis=0) 
                                     # average over the bars, ignoring the ends
+            target = marginal[np.newaxis, n//14:-n//14].astype(np.uint8)
+                            # target is a 1px-high image with 3 bars in it
+            # We correlate the thin target with each row of the image, to
+            # recover the tilt of the image.
+            slant = cv2.matchTemplate(gray_roi[n*3//14:-n*3//14, :],
+                                      target.astype(np.uint8), cv2.TM_CCOEFF_NORMED)
+            # threshold and centre of mass for each row
+            slant -= slant.min(axis=1)[:,np.newaxis]
+            slant /= slant.max(axis=1)[:,np.newaxis]
+            slant -= 0.8
+            slant[slant < 0] = 0
+            shifts = np.sum(slant * np.arange(slant.shape[1]), axis=1)/np.sum(slant, axis=1)
+            gradient, offset = np.polyfit(np.arange(len(shifts)), shifts, 1)
+            tilt = np.arctan(gradient) # fit the peak in each row to find the angle
+
             centre = marginal[n*5//14:n*9//14] #the central bar
             ccor = np.convolve(marginal, centre[::-1] - np.mean(centre), mode='valid')
                             # NB the central peak will always be at ccor[n*5//14]
@@ -252,19 +256,37 @@ def analyse_elements(image, elements, plot=False):
             if plot: ax1.plot(np.abs(np.arange(len(ccor)) - n*5//14), ccor)
             maxcor = ccor[n*5//14]
             period_1 = n*5//14 - find_peak_position(ccor[:n//7])
+            period_1 *= np.cos(tilt)
             period_2 = find_peak_position(ccor[4*n//7:]) + 4*n//7 - n*5//14
+            period_2 *= np.cos(tilt)
             if plot:
                 for x in [period_1, period_2]:
                     ax1.plot(np.abs([x, x]), [0, maxcor])
+                ax0.imshow(gray_roi, cmap="cubehelix")
+                ax0.axis("off")
+                ys = np.arange(len(shifts)) + 3*n//14
+                cx = (n-1.)/2
+                ax0.plot(shifts - np.mean(shifts) + cx, ys, 'r+') # plot fitted X values
+                for x in [-period_1, 0, period_2]:
+                    ax0.plot(x + (ys - np.mean(ys)) * np.tan(tilt) + cx, ys - x * np.tan(tilt), 'b-')
+                
             analysis.append((period_1, period_2))
         except Exception as e:
             print("Exception: {}".format(e))
-    return analysis
+    if plot:
+        return f, analysis
+    else:
+        return analysis
 
 def fit_periods(periods, gray_image, g=7, h=6, plot=True):
     """Assume the smallest element is group g, element h, and analyse.
     
-    We return a dictionary with relevant parameters of the image.
+    We return a dictionary with relevant parameters of the image.  This
+    fits the measured periods of elements in the image to the known
+    periods of the USAF pattern, assuming that the smallest period is
+    group <g> element <h>.  If plot is set to True, the periods are
+    plotted on a graph along with the line of best fit used to calculate
+    the magnification.
     """
     minp = np.max(gray_image.shape)
     for p in periods:
@@ -292,7 +314,6 @@ def fit_periods(periods, gray_image, g=7, h=6, plot=True):
         ax.plot(x, period_gradient*x, '-')
     print("Assuming intercept is zero gives {} +/- {}".format(rs.mean(), 
                                               rs.std()/np.sqrt(len(rs)-1)))
-    print()
     print("Assuming smallest block is group {}, element {},".format(g,h))
     line_pairs_mm = 2**(g + (h - 1)/6.0)
     period_um = 1000 / line_pairs_mm
@@ -304,67 +325,107 @@ def fit_periods(periods, gray_image, g=7, h=6, plot=True):
     diagonal = np.sqrt(np.sum(FoV**2))
     print("diagonal is {:.1f} +/- {:.1f} um".format(diagonal, 
                                             diagonal * pixel_nm_se/pixel_nm))
-    return {
+    parameters = {
             'group':g,
             'element':h,
             'pixel_nm':pixel_nm,
             'pixel_nm_se':pixel_nm_se,
             'field_of_view':FoV,
+            'field_of_view_x':FoV[0],
+            'field_of_view_y':FoV[1],
+            'pixels':gray_image.T.shape,
+            'pixels_x':gray_image.T.shape[0],
+            'pixels_y':gray_image.T.shape[1],
             'diagonal':diagonal,
             'fractional_standard_error':pixel_nm_se/pixel_nm,
             'smallest_period_pixels':period_gradient,
             'smallest_period_se':period_gradient_se,
             'polyfit_coefficients':m,
             }
+    if plot:
+        return f, parameters
+    else:
+        return parameters
             
-def analyse_image(gray_image):
-    """Find USAF groups in the image and fit them to determine magnification."""
+def analyse_image(gray_image, pdf=None):
+    """Find USAF groups in the image and fit them to determine magnification.
+    
+    This is the top-level function that you should call to analyse an image.
+    The image should be a 2D numpy array.  If the optional "pdf" argument is
+    supplied, several graphs will be plotted into the given PdfPages object.
+    
+    returns: fig, parameters
+    
+    fig is a matplotlib figure object plotting to the image with each
+    element highlighted in a box.
+    parameters is a dictionary summarising the fitted values, as returned
+    by fit_periods."""
     elementsx, matchesx = find_elements(gray_image, return_all=True)
-    analysisx = analyse_elements(gray_image, elementsx, plot=False)
     elementsy, matchesy = find_elements(gray_image.T, return_all=True)
-    analysisy = analyse_elements(gray_image.T, elementsy, plot=False)
+    fig = plot_matches(gray_image, elementsx, elementsy)
+    fax, analysisx = analyse_elements(gray_image, elementsx, plot=True)
+    fay, analysisy = analyse_elements(gray_image.T, elementsy, plot=True)
     
     #Now generate four lists, of first/second periods in X and Y
     periods = [[a[i] for a in analysis] 
                 for i in range(2) for analysis in (analysisx, analysisy)]
     
-    parameters = fit_periods(periods, gray_image)
-    fig = plot_matches(gray_image, elementsx, elementsy)
+    ffit, parameters = fit_periods(periods, gray_image)
     
+    if pdf is not None:
+        for f in [fig, fax, fay, ffit]:
+            pdf.savefig(f)
+    for f in [fax, fay, ffit]:
+        plt.close(f)
     return fig, parameters
     
-def analyse_file(filename):
+def analyse_file(filename, generate_pdf=True):
     """Analyse the image file specified by the given filename"""
     gray_image = np.mean(imread(filename), axis=2).astype(np.uint8)
-    return analyse_image(gray_image)
+    with PdfPages(filename+"_analysis.pdf") as pdf:
+        fig, parameters = analyse_image(gray_image, pdf)
+        with open(filename+"_analysis.txt",'w') as text:
+            text.write("Assuming the smallest element is number {element} from group {group}.\n".format(**parameters))
+            text.write("That means one pixel is {pixel_nm} +/- {pixel_nm_se} nm.\n".format(**parameters))
+            text.write("The field of view is {field_of_view} um.\n".format(**parameters))
+            text.write("\n")
+            
+            text.write("pixel_nm: {}\n".format(parameters['pixel_nm']))
+            text.write("pixel_nm_se: {}\n".format(parameters['pixel_nm_se']))
+        fig.suptitle(filename)
+        return fig, parameters
 
-
-if __name__ == '__main__':
-    import os.path
-    import os
-    from skimage.io import imread
-    from matplotlib.backends.backend_pdf import PdfPages
-    here = os.path.dirname(__file__)
-    datasets = os.path.join(here, "datasets")
+def analyse_folders(datasets):
+    """Analyse a folder hierarchy containing a number of calibration images.
+    
+    Given a folder that contains a number of other folders (one per microscope usually),
+    find all the USAF images (<datasets>/*/usaf_*.jpg) and analyse them.  It also generates
+    a summary file in CSV format, and a PDF with all the images and the detected elements.
+    """
     files = []
     for dir in [os.path.join(datasets, d) for d in os.listdir(datasets)]: # if d.startswith('6led')]:
         files += [os.path.join(dir,f) for f in os.listdir(dir) if f.startswith("usaf_") and f.endswith(".jpg")]
     summary_data_columns = ['group', 'element', 'pixel_nm', 'pixel_nm_se', 'diagonal', 
-                            'fractional_standard_error', 'smallest_period_pixels', 'smallest_period_se']
-    with PdfPages(os.path.join(here,"usaf_calibration.pdf")) as pdf, \
+                            'fractional_standard_error', 'smallest_period_pixels', 'smallest_period_se', 'pixels_x', 'pixels_y', 'field_of_view_x', 'field_of_view_y']
+    with PdfPages("usaf_calibration.pdf") as pdf, \
         open("usaf_calibration_summary.csv", "w") as summary_text:
         summary_text.write("filename, " + ", ".join(summary_data_columns) + "\n")
         for filename in files:
-            print("Analysing file {}".format(filename))
+            print("\nAnalysing file {}".format(filename))
             fig, parameters = analyse_file(filename)
-            fig.suptitle(filename)
             pdf.savefig(fig)
-            with open(os.path.join(dir, "analysis_of_"+os.path.basename(filename)+".txt"),'w') as text:
-                text.write("Assuming the smallest element is number {element} from group {group}.\n".format(**parameters))
-                text.write("That means one pixel is {pixel_nm} +/- {pixel_nm_se} nm.\n".format(**parameters))
-                text.write("The field of view is {field_of_view} um.\n".format(**parameters))
-                text.write("\n")
-                
-                text.write("pixel_nm: {}\n".format(parameters['pixel_nm']))
-                text.write("pixel_nm_se: {}\n".format(parameters['pixel_nm_se']))
             summary_text.write(", ".join([filename] + [str(parameters[c]) for c in summary_data_columns]) + "\n")
+    
+if __name__ == '__main__':
+    if len(sys.argv) == 1:
+        print("Usage: {} <file_or_folder> [<file2> ...]".format(sys.argv[0]))
+        print("If a file is specified, we produce <file>_analysis.pdf and <file>_analysis.txt")
+        print("If a folder is specified, we produce usaf_calibration.pdf and usaf_calibration_summary.csv")
+        print("as well as the single-file analysis for <folder>/*/usaf_*.jpg")
+        print("Multiple files may be specified, using wildcards if your OS supports it - e.g. myfolder/calib*.jpg")
+        exit(-1)
+    if len(sys.argv) == 2 and os.path.isdir(sys.argv[1]):
+        analyse_folders(sys.argv[1])
+    else:
+        for filename in sys.argv[1:]:
+            analyse_file(filename)
