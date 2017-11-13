@@ -167,7 +167,7 @@ def analyse_file(fname, fuzziness=5, subsampling = 1, blocks = 11, plot=False, s
         into that PDF.
     """
     print("Processing {}...".format(fname),end="")
-    image = imread(os.path.join(dir, fname))
+    image = imread(fname)
     original_image = image
     horizontal, falling = find_edge_orientation(image, fuzziness=fuzziness)  # figure out the direction of the edge
     if horizontal:
@@ -178,76 +178,63 @@ def analyse_file(fname, fuzziness=5, subsampling = 1, blocks = 11, plot=False, s
     psfs, line = find_psf(image, fuzziness=fuzziness, subsampling=subsampling, blocks=blocks)
 
     if plot or save_plot:
-        print(" plotting...",end="")
-        fig = plt.figure()
-        nrows = int(np.floor(np.sqrt(blocks + 1)))
-        ncols = int(np.ceil(float(blocks + 1)/nrows))
-        gs = GridSpec(nrows, ncols + 1) # we'll plot things in a grid.
-        
-        image_ax = fig.add_subplot(gs[:,0])
-        image_ax.imshow(image[:, line[1] - 5*fuzziness:line[1] + line[0]*image.shape[0]+5*fuzziness, ...])
-        image_ax.axes('off')
-        ys = np.arange(image.shape[0])
-        xs = line[0]*ys - 5*fuzziness
-        image_ax.plot(xs, ys, color="red", dashes=(2,8))
-        
-        for i in range(blocks):
-            ax = fig.add_subplot(gs[i//nrows, 1 + i % nrows])
-            plot_psf(psfs[i,...], ax=ax, subsampling=subsampling)
-            ax.set_title("PSF {}".format(i))
-            find_fwhm(psfs[i,...], annotate_ax=ax, subsampling=subsampling)
-            image_ax.annotate(str(i), xy=(line[1]+line[0]*image.shape[0]*(i+0.5)/blocks))
-        if save_plot:
-            fig.savefig(fname + "_analysis.pdf")
+        with matplotlib.rc_context(rc={"font.size":6}):
+            print(" plotting...",end="")
+            fig = plt.figure(figsize=(12,9), )
+            fig.suptitle(fname)
+            nrows = int(np.floor(np.sqrt(blocks + 1)))
+            ncols = int(np.ceil(float(blocks + 1)/nrows))
+            gs = GridSpec(nrows, ncols + 1) # we'll plot things in a grid.
+            
+            image_ax = fig.add_subplot(gs[:,0])
+            ys = np.arange(image.shape[0])
+            xs = line[0]*ys + line[1]
+            image_ax.imshow(image[:, np.min(xs) - 5*fuzziness:np.max(xs) + 5*fuzziness, ...])
+            image_ax.xaxis.set_visible(False)
+            image_ax.yaxis.set_visible(False)
+            image_ax.plot(xs - (np.min(xs) - 5*fuzziness), ys, color="red", dashes=(2,8))
+            for i in range(blocks):
+                ax = fig.add_subplot(gs[i//ncols, 1 + (i % ncols)])
+                plot_psf(psfs[i,...], ax=ax, subsampling=subsampling)
+                ax.set_title("PSF {}".format(i))
+                find_fwhm(psfs[i,...], annotate_ax=ax, subsampling=subsampling)
+                centre_y = image.shape[0]*(i+0.5)/blocks
+                image_ax.annotate(str(i), xy=(line[1]+line[0]*centre_y, centre_y))
+            fig.tight_layout()
+            if save_plot:
+                fig.savefig(fname + "_analysis.pdf")
     print(" done.")
     if plot:
         return fig, psfs
-    else return psfs
+    else:
+        return psfs
 
-    
+
+def analyse_files(fnames, output_dir=".", **kwargs):
+    """Analyse a number of files.  kwargs passed to analyse_file"""
+    with PdfPages(os.path.join(output_dir, "edge_analysis.pdf")) as pdf:
+        psf_list = []
+        for fname in fnames:
+            fig, psfs = analyse_file(os.path.join(sys.argv[1], fname), plot=True)
+            pdf.savefig(fig)
+            psf_list.append(psfs)
+            plt.close(fig)
+        np.savez(os.path.join(output_dir, "edge_analysis.npz"), filenames=fnames, psfs=psf_list)
 
 if __name__ == '__main__':
-    fnames = [n for n in os.listdir(dir) if n.startswith("edge") and n.endswith(".jpg")]
-    with PdfPages(os.path.join(dir, "edge_function_analysis.pdf")) as pdf:
-        for fname in fnames:
-            print("Processing {}...".format(fname),end="")
-            image = imread(os.path.join(dir, fname))
-            original_image = image
-            horizontal, falling = find_edge_orientation(image)  # figure out the direction of the edge
-            if horizontal:
-                image = image.transpose((1,0,2))  # if the edge is in the first array index, move it to the second
-            if falling:
-                image = image[:, ::-1, ...]  # for falling edges, flip the image so they're rising
-
-            h, w, d = image.shape
-            image = image[2*h//5:3*h//5, :, ...]  # crop out the middle 20% of the image for now
-
-            ss = 5
-
-            psf, line = find_psf(image, fuzziness=5, subsampling=ss)
-            mtf = np.abs(fft.rfft(psf, axis=0, n=psf.shape[0]))
-
-            f, ax = plt.subplots(1,1)
-            plot_psf(psf, ax=ax, subsampling=ss)
-            find_fwhm(psf, ax, subsampling=ss)
-            inset_image(f, original_image, line, horizontal, falling)
-            ax.set_title("PSF for "+fname)
-            #f.savefig(os.path.join(dir, "psf_"+fname))
-            pdf.savefig(f)
-            f, ax = plt.subplots(1,1)
-            plot_psf(mtf, ax=ax, x=fft.rfftfreq(psf.shape[0])*ss, xlabel="spatial frequency * 1 pixel")
-            inset_image(f, original_image, line, horizontal, falling)
-            ax.set_title("MTF for "+fname)
-            #f.savefig(os.path.join(dir, "mtf_"+fname))
-            pdf.savefig(f)
-            print("done")
-
-"""    if show_plots:
-        f, ax = plt.subplots(1,2)
-        for i, col in enumerate(['red', 'green', 'blue']):
-            ax[0].plot(psf[:,i], color=col)
-            ax[1].plot(fft.rfftfreq(psf.shape[0]), mtf[:,i], color=col)
-        ax[0].set_xlabel('position/pixels')
-        ax[1].set_xlabel('spatial frequency/pixels^-1')
-    plt.show()
-"""
+    if len(sys.argv) == 1:
+        print("Usage: {} <file_or_folder> [<file2> ...]".format(sys.argv[0]))
+        print("If a file is specified, we produce <file>_analysis.pdf")
+        print("If a folder is specified, we produce a single PDF in that folder, analysing all its JPEG contents")
+        print("Multiple files may be specified, using wildcards if your OS supports it - e.g. myfolder/calib*.jpg")
+        print("In that case, one PDF will be saved as ./edge_analysis.pdf")
+        print("In the case of multiple files or a folder, we will also save the extracted PSFs in edge_analysis.npz")
+        exit(-1)
+    if len(sys.argv) == 2:
+        # if a single file is specified, analyse just that.
+        if os.path.isfile(sys.argv[1]):
+            analyse_file(sys.argv[1], save_plot=True)
+        if os.path.isdir(sys.argv[1]):
+            analyse_files([f for f in os.listdir(sys.argv[1]) if f.endswith(".jpg") and "raw" not in f], output_dir = sys.argv[1])
+    else:
+        analyse_files(sys.argv[1:])
