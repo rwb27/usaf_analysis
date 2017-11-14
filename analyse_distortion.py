@@ -104,17 +104,20 @@ def find_edges(dir):
         print("done")
     return lines    
 
+def position_from_filename(fname):
+    """Extract the x,y,z position from a filename."""
+    # extract the stage position from the filename (todo: use EXIF tags or something)
+    # the regular expression should return two groups, one is x/y/z the other is a number.
+    matches = re.findall(r"([xyz])[_ ]*(-{0,1}[\d]+)", fname)
+    pos = dict(matches)
+    return np.array([pos[d] for d in ('x','y','z')], dtype=np.int)
+    
 def find_positions(dir):
     """Given a directory of edge images, extract the lines and positions from each image."""
     stage_positions = []
     for i, fname in enumerate(edge_image_fnames(dir)):
         try:
-            # extract the stage position from the filename (todo: use EXIF tags or something)
-            # the regular expression should return two groups, one is x/y/z the other is a number.
-            matches = re.findall(r"([xyz])[_ ]*(-{0,1}[\d]+)", fname)
-            pos = dict(matches)
-            stage_positions.append(np.array([pos[d] for d in ('x','y','z')], dtype=np.int))
-            #print("{} -> {}".format(fname, pos))
+            stage_positions.append(position_from_filename(fname))
         except:
             print("couldn't extract positions from {}".format(fname))
     return stage_positions

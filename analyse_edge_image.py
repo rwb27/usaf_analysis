@@ -212,14 +212,15 @@ def analyse_file(fname, fuzziness=5, subsampling = 1, blocks = 11, plot=False, s
 
 def analyse_files(fnames, output_dir=".", **kwargs):
     """Analyse a number of files.  kwargs passed to analyse_file"""
+    psf_list = []
     with PdfPages(os.path.join(output_dir, "edge_analysis.pdf")) as pdf:
-        psf_list = []
         for fname in fnames:
             fig, psfs = analyse_file(os.path.join(sys.argv[1], fname), plot=True)
             pdf.savefig(fig)
             psf_list.append(psfs)
             plt.close(fig)
-        np.savez(os.path.join(output_dir, "edge_analysis.npz"), filenames=fnames, psfs=psf_list)
+    np.savez(os.path.join(output_dir, "edge_analysis.npz"), filenames=fnames, psfs=psf_list)
+    return psf_list
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
