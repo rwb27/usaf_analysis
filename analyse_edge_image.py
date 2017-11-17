@@ -189,7 +189,7 @@ def analyse_file(fname, fuzziness=5, subsampling = 1, blocks = 11, plot=False, s
             image_ax = fig.add_subplot(gs[:,0])
             ys = np.arange(image.shape[0])
             xs = line[0]*ys + line[1]
-            image_ax.imshow(image[:, np.min(xs) - 5*fuzziness:np.max(xs) + 5*fuzziness, ...])
+            image_ax.imshow(image[:, int(np.min(xs) - 5*fuzziness):int(np.max(xs) + 5*fuzziness), ...])
             image_ax.xaxis.set_visible(False)
             image_ax.yaxis.set_visible(False)
             image_ax.plot(xs - (np.min(xs) - 5*fuzziness), ys, color="red", dashes=(2,8))
@@ -215,12 +215,20 @@ def analyse_files(fnames, output_dir=".", **kwargs):
     psf_list = []
     with PdfPages(os.path.join(output_dir, "edge_analysis.pdf")) as pdf:
         for fname in fnames:
-            fig, psfs = analyse_file(os.path.join(sys.argv[1], fname), plot=True)
+            fig, psfs = analyse_file(fname, plot=True)
             pdf.savefig(fig)
             psf_list.append(psfs)
             plt.close(fig)
     np.savez(os.path.join(output_dir, "edge_analysis.npz"), filenames=fnames, psfs=psf_list)
     return psf_list
+    
+def edge_image_fnames(folder):
+    """Find all the images in a folder that look like edge images"""
+    fnames = []
+    for f in os.listdir(folder):
+        if f.endswith(".jpg") and "raw" not in f:
+            fnames.append(os.path.join(folder, f))
+    return fnames
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
@@ -228,14 +236,29 @@ if __name__ == '__main__':
         print("If a file is specified, we produce <file>_analysis.pdf")
         print("If a folder is specified, we produce a single PDF in that folder, analysing all its JPEG contents")
         print("Multiple files may be specified, using wildcards if your OS supports it - e.g. myfolder/calib*.jpg")
-        print("In that case, one PDF will be saved as ./edge_analysis.pdf")
+        print("In that case, one PDF (./edge_analysis.pdf) is generated for all; the files")
+        print("if multiple folders are specified, or a mix of folders and files, each folder is handled separately as above")
+        print("and all the files are processed together.")
         print("In the case of multiple files or a folder, we will also save the extracted PSFs in edge_analysis.npz")
         exit(-1)
-    if len(sys.argv) == 2:
-        # if a single file is specified, analyse just that.
-        if os.path.isfile(sys.argv[1]):
-            analyse_file(sys.argv[1], save_plot=True)
-        if os.path.isdir(sys.argv[1]):
-            analyse_files([f for f in os.listdir(sys.argv[1]) if f.endswith(".jpg") and "raw" not in f], output_dir = sys.argv[1])
+    if len(sys.argv) == 2 and os.path.isfile(sys.argv[1]):
+        # A single file produces a pdf with a name specific to that file, so it's different.
+        analyse_file(sys.argv[1], save_plot=True)
     else:
-        analyse_files(sys.argv[1:])
+        fnames = []
+        folders = []
+        for fname in sys.argv[1:]:
+            if os.path.isfile(fname):
+                fnames.append(fname)
+            if os.path.isdir(fname):
+                folders.append(fname)
+        if len(fnames) > 0:
+            print("Analysing files...")
+            analyse_files(fnames)
+        for folder in folders:
+            try:
+                print("\nAnalysing folder: {}".format(folder))
+                analyse_files(edge_image_fnames(folder), output_dir=folder)
+            except Exception as e:
+                print("ERROR: {}".format(e))
+                print("Aborting this folder.\n")

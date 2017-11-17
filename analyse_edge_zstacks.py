@@ -56,11 +56,23 @@ def analyse_zstack(folder):
     zs = positions[:,2]
     z_bounds = np.concatenate(([zs[0]], (zs[1:] + zs[:-1])/2., [zs[-1]])) # pcolormesh wants edge coords not centre coords
     y_bounds = np.arange(psfs.shape[2] + 1) - psfs.shape[2]/2.0
-    fig, axes = plt.subplots(1,blocks, figsize=(2,1*blocks)
+    fig, axes = plt.subplots(1,blocks, figsize=(1*blocks, 2), sharey=True)
+    psf8 = (psfs/np.max(psfs)*255).astype(np.uint8)
+    psf8[psfs<0] = 0
     for i in range(blocks):
-        axes[i].pcolormesh(y_bounds, z_bounds, psf8[:,i,...], aspect="auto")
-    fig.savefig(os.path.join(folder, "edge_zstack_summary.pdf"))
-
+        #axes[i].pcolormesh(y_bounds, z_bounds, psf8[:,i,...], aspect="auto")
+        axes[i].imshow(psf8[:,i,...], aspect="auto")
+    # calculate sharpness metrics and fit for field curvature
+    ys = np.arange(psfs.shape[2])[np.newaxis,np.newaxis,:,np.newaxis]
+    mean_ys = np.mean(np.abs(psfs)*ys, axis=2)/np.mean(np.abs(psfs), axis=2)
+    var_ys = np.mean(np.abs(psfs)*(ys-mean_ys[:,:,np.newaxis,:])**2, axis=2)/np.mean(np.abs(psfs), axis=2)
+    field_curvature = np.argmin(var_ys, axis=0)
+    fig2, ax2 = plt.subplots(1,1)
+    ax2.plot(field_curvature)
+    with PdfPages(os.path.join(folder, "edge_zstack_summary.pdf")) as pdf:
+        for f in [fig, fig2]:
+            pdf.savefig(f)
+            plt.close(f)
     
     
     
@@ -77,4 +89,5 @@ if __name__ == "__main__":
         print("This scripts creates a number of PDF plots based on said images.")
     
     for dir in sys.argv[1:]:
-        
+        for subdir in os.listdir(dir):
+            analyse_zstack(os.path.join(dir, subdir))
