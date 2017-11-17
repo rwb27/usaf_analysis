@@ -23,11 +23,12 @@ The scripts can generally be used to analyse either a single measurement (by pas
 
 ## Background
 Generally I want to measure:
-    * The size of pixels, in sample units (i.e. nm per pixel)
-    * The field of view (in units of distance)
-    * The resolution of the microscope (using the point spread function)
-    * Any distortion that might be present
-    * Field curvature
+* The size of pixels, in sample units (i.e. nm per pixel)
+* The field of view (in units of distance)
+* The resolution of the microscope (using the point spread function)
+* Any distortion that might be present
+* Field curvature
+
 The US Air Force resolution test target consists of a series of "elements" of three horizontal or vertical bars.  Usually the target is used by determining the smallest resolvable element, noting its number (given as a "group" and within that an "element" number), and finding the pitch of the three lines.  However, this doesn't work so well for microscopes, as the smallest element on most easily available targets is usually group 7, element 6, which has a pitch of 4.4um, i.e. the bars and spaces in between are 2.2um.  This is resolvable in even a fairly modest microscope.
 
 ### Pixel size/FoV
