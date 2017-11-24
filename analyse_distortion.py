@@ -142,6 +142,9 @@ def analyse_distortion(dir):
     f6, ax6 = plt.subplots(1,2)
     ax6[0].set_title("stage vs pixels (h)")
     ax6[0].set_title("stage vs pixels (v)")
+    f7, ax7 = plt.subplots(1,3)
+    for i, m in enumerate([5,10,50]):
+        ax7[i].set_title("Distortion multiplied {}x".format(m))
     max_r = 0
     for direction_folder in ["distortion_h", "distortion_v"]: # one folder for each edge direction - doesn't matter which
         folder = os.path.join(dir,direction_folder)
@@ -186,6 +189,12 @@ def analyse_distortion(dir):
             deviation_from_mean[i,:] = demean_ys[:deviation_from_mean.shape[1]*blocksize].reshape(deviation_from_linearity.shape[1], blocksize).mean(axis=1)
             if clean_lines[i]>0: #some images may not have an edge(e.g. if it was off-screen)
                 axes[0].plot(lines[i,0,:], lines[i,1,:])
+                for i, m in enumerate([5, 10, 50]):
+                    ex = xs
+                    ey = ys + demean_ys * m
+                    if changing_axis == 0:
+                        ex, ey = ey, ex
+                    ax7[i].plot(ex, ey)
                 ax3[changing_axis].plot(scipy.ndimage.gaussian_filter(demean_ys, sigma=20))
                 axes[changing_axis+1].plot(scipy.ndimage.gaussian_filter(delin_ys, sigma=20))
                 cx, cy = (1640, 1232) if changing_axis ==0 else (1232, 1640)
@@ -209,9 +218,13 @@ def analyse_distortion(dir):
     axes[0].set_aspect(1)
     axes[0].set_xlabel("Position in image (pixels)")
     axes[0].set_ylabel("Position in image (pixels)")
+    for i in range(3):
+        ax7[i].set_aspect(1)
+        ax7[i].set_xlim(axes[0].get_xlim())
+        ax7[i].set_ylim(axes[0].get_ylim())
     ax5.set_ylim((-5,5))
     ax5.plot([0,max_r],[0,0],'k-', linewidth=2)
-    return((f, f2, f3, f4, f5, f6))
+    return((f, f2, f3, f4, f5, f6, f7))
     
 def analyse_dir(dir, summary_pdfs={}):
     """Analyse a folder of edge images for distortion.
