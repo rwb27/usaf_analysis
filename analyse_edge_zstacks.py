@@ -66,7 +66,7 @@ def analyse_zstack(folder):
     ys = np.arange(psfs.shape[2])[np.newaxis,np.newaxis,:,np.newaxis]
     mean_ys = np.mean(np.abs(psfs)*ys, axis=2)/np.mean(np.abs(psfs), axis=2)
     var_ys = np.mean(np.abs(psfs)*(ys-mean_ys[:,:,np.newaxis,:])**2, axis=2)/np.mean(np.abs(psfs), axis=2)
-    field_curvature = np.argmin(var_ys, axis=0)
+    field_curvature = np.argmin(var_ys, axis=0) # todo: use the thresholded centre of mass code from USAF
     fig2, ax2 = plt.subplots(1,1)
     ax2.plot(field_curvature)
     with PdfPages(os.path.join(folder, "edge_zstack_summary.pdf")) as pdf:
