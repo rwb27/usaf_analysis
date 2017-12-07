@@ -6,11 +6,8 @@ Analyse a series of step-function images to recover distortion of the image
 
 This program expects as input an image containing a single black/white edge.  It will:
 1. determine the direction (horizontal/vertical) and sign (black then white or white then black) of the edge
-2. measure the angle of the edge (for the analysis to be valid the angle should be close to but not exactly
-    horizontal or vertical)
-3. average along the edge (or a specified portion thereof) to reduce noise and allow pixel subsampling
-4. take the gradient
-5. compute the MTF or resolution by a couple of methods
+2. track the edge as it is scanned over the field of view
+3. analyse the resultant grid of lines to determine the stage's step size and any distortion in the image
 
 NB a 3-channel colour image is assumed.  Pad grayscale images to be n x m x 3 to avoid wierd results...
 
