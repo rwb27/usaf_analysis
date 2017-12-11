@@ -21,12 +21,14 @@ import numpy as np
 import cv2
 
 import scipy.ndimage
+import scipy.ndimage as ndimage
 import scipy.interpolate
 import itertools
 import os
 import sys
 import re
 import os.path
+import scipy.optimize
 from skimage.io import imread
 from matplotlib.backends.backend_pdf import PdfPages
 
@@ -118,31 +120,21 @@ def find_positions(dir):
         except:
             print("couldn't extract positions from {}".format(fname))
     return stage_positions
-
-def analyse_distortion(dir):
-    """Analyse folders full of horizontal and vertical edge images for distortion"""
-    f, axes = plt.subplots(1,3)
-    axes[0].set_title("Lines as found on the images")
-    axes[1].set_title("Horizontal lines (- mean y)")
-    axes[2].set_title("Vertical lines (- mean x)")
-    f2, ax2 = plt.subplots(1,2)
-    ax2[0].set_title("Deviation from linearity (h)")
-    ax2[1].set_title("Deviation from linearity (v)")
-    f3, ax3 = plt.subplots(1,2)
-    ax3[0].set_title("Deviation from mean (h)")
-    ax3[1].set_title("Deviation from mean (v)")
-    f4, ax4 = plt.subplots(1,2)
-    ax4[0].set_title("Deviation from mean (h)")
-    ax4[1].set_title("Deviation from mean (v)")
-    f5, ax5 = plt.subplots(1,1)
-    ax5.set_title("Deviation from mean (radial)")
-    f6, ax6 = plt.subplots(1,2)
-    ax6[0].set_title("stage vs pixels (h)")
-    ax6[0].set_title("stage vs pixels (v)")
-    f7, ax7 = plt.subplots(1,3)
-    for i, m in enumerate([5,10,50]):
-        ax7[i].set_title("Distortion multiplied {}x".format(m))
-    max_r = 0
+    
+def load_edges(dir):
+    """Load or calculate the edge positions and shapes from a folder
+    
+    Returns: liness, positionss
+        liness: a list containing two arrays, with the extracted edge shapes
+            for vertical and horizontal lines.  Arrays are of shape (n, 2, w) 
+            where n is the number of images, 2 represents x/y coordinates, and
+            w is the number of pixels across the image (different between the
+            two arrays)
+        positionss: a list containing two (n, 3) arrays with the stage positions
+            corresponding to each edge image.
+    """
+    liness = [None, None]
+    positionss = [None, None]
     for direction_folder in ["distortion_h", "distortion_v"]: # one folder for each edge direction - doesn't matter which
         folder = os.path.join(dir,direction_folder)
         if not os.path.isdir(folder):
@@ -160,68 +152,246 @@ def analyse_distortion(dir):
             np.savez(lines_fname, lines=lines, stage_positions=positions)
             
         changing_axis = np.argmax(np.std(np.mean(lines, axis=2), axis=0)) # the axis that changes is the interesting one - e.g. y for horizontal lines
-        max_changing_axis = np.max(lines[:,changing_axis, :])
+        liness[changing_axis] = lines
+        positionss[changing_axis] = positions
+    return liness, positionss
+    
+    
+def reduce_1d(x, blocksize, axis=None):
+    """Take block means of a 1D array"""
+    if axis is None and len(x.shape) == 1:
+        N = len(x)//blocksize
+        # We reshape so that we can take block means by taking means of columns.
+        return np.mean(x[:(N*blocksize)].reshape(N, blocksize), axis=1)
+    else:
+        shape = x.shape
+        # Crop the array so it reshapes exactly into an integer number of blocks
+        N = shape[axis]//blocksize
+        crop_slice = ((slice(None),)*(axis)
+                      + (slice(0,N*blocksize),) 
+                      + (slice(None),)*(len(shape) - axis - 1))
+        # then reshape it so the axis in question becomes 2 axes
+        new_shape = shape[:axis] + (N, blocksize) + shape[(axis + 1):]
+        # the second of these new axes will be the one over which we take the mean
+        return np.mean(x[crop_slice].reshape(new_shape), axis=axis+1)
+
+def widen(x, axis=0):
+    """widen a boolean array by 1 along the given axis, using a logical OR"""
+    shape = list(x.shape)
+    shape[axis] += 1
+    out = np.zeros(shape, dtype=np.bool)
+    slices = [slice(None)] * len(shape)
+    slices[axis] = slice(None, -1)
+    out[slices] = x
+    slices[axis] = slice(1, None)
+    out[slices] = np.logical_or(out[slices], x)
+    return out
+
+    
+def find_mask_and_deviationss(liness, threshold=3):
+    """Filter out noisy bits of the lines, mask the array, and find the deviations-from-means.
+    
+    returns masked_liness (liness with noisy bits masked off) and 
+            deviationss (liness with the mean line shape subtracted)
+    """
+    masked_liness = [None, None] # "lines" holds all the lines from one folder.  "liness" is a list, holding *both* folders.
+    for i in range(len(liness)):
+        # calculate the differential variance of each line, smooth it, and set a threshold for "too noisy"
+        noisiness = np.sqrt(np.sum(ndimage.filters.gaussian_filter1d(np.diff(liness[i], axis=2)**2, 2, axis=2), axis=1))
+        mask = widen(noisiness > threshold, axis=1) # we need to widen the array because the diff() shrank it
+        masked_liness[i] = np.ma.masked_array(liness[i], np.tile(mask[:, np.newaxis, :], (1,2,1))) # need to restore axis 1, of length 2
+
+    deviationss = []
+    for i, lines in enumerate(masked_liness):
+        # First, calculate the mean line shape.  NB we have to subtract each line's position, otherwise masking elements
+        # of different lines will add noise (effectively by weighting edge positions differently for different pixels)
+        # subtracting the mean of each line should (more or less) fix this by making all the lines coincident before
+        # averaging them together.
+        # of course, the mean position will be affected by masked elements if lines aren't perfectly straight - but
+        # this shouldn't be a big effect as the lines are nearly vertical.  If the mean lines in the plot are straight,
+        # that means it's ok - 
+        mean_line = (lines - lines.mean(axis=2)[:,:,np.newaxis]).mean(axis=0)
+        deviations = lines - mean_line[np.newaxis,...] # remove the average line shape
+        deviations -= deviations.mean(axis=2)[:,:,np.newaxis] # remove the positions of individual lines
+        deviationss.append(deviations)
+    return masked_liness, deviationss
+    
+def make_dr_spline(dr, liness):
+    """Construct a spline to use as a radial distortion function."""
+    dr = np.concatenate([[0.], dr]) #fix the centre as zero distortion
+    # we model the radial distortion as a function of radius, using cubic interpolation
+    # the "x axis" of the function goes from zero to half the diagonal (points beyond are interpolated)
+    modelled_deviationss_max_r = np.sqrt(np.sum([l.shape[2]**2 for l in liness]))/2 # half the diagonal
+    dr_spline = scipy.interpolate.interp1d(np.linspace(0,modelled_deviationss_max_r,len(dr)),
+                                      dr, kind="cubic", bounds_error=False, fill_value="extrapolate")
+    def wrapped_dr_spline(radii):
+        if isinstance(radii, np.ma.MaskedArray):
+            # the spline interpolation fails with a masked array, so unmask-interpolate-remask...
+            return np.ma.array(dr_spline(np.ma.filled(radii, 0)), mask=radii.mask)
+        else:
+            return dr_spline(radii)
+            
+    return wrapped_dr_spline
+    
+def modelled_deviationss(centre, dr, liness):
+    """Calculate the deviation-from-the-mean lines for a given distortion function
+    
+    centre: np.array, length 2, describing the centre of distortion in pixels
+    """
+    deviationss = []
+    dr_spline = make_dr_spline(dr, liness)
+    
+    centre = np.array(centre)
+    for i, lines in enumerate(liness):
+        pos = lines - centre[np.newaxis,:,np.newaxis] #positions relative to centre
+        radii = np.sqrt(np.sum(pos**2, axis=1)) #radii, for each point on each line
+        dr = dr_spline(radii)
+        deviations = dr[:,np.newaxis,:] * pos/radii[:,np.newaxis,:] # NB this is the "true" deviation in r, not what we measure
+        deviations[:,(i + 1) % 2, :] = 0 # We can't measure anything along the axis of the deviation, so zero it out
+                                         # NB there's an approximation here because the edge isn't perfectly along x or y...
+        deviationss.append(deviations)
+    return deviationss
+            
+def tidy_pixel_axes(axes, 
+                    label_pos=(0.03,0.97), 
+                    va="top", ha="left", 
+                    xlabels=None, ylabels=[0], 
+                    aspect=1, 
+                    part_number_offset=0,
+                    xlabel="x position (pixels)", ylabel="y position(pixels)"):
+    """For a series of axes with shared X and Y, ensure the aspects are equal, limits are tight, and label them.
+    
+    label_pos should be a tuple of two numbers setting the position of (a), (b), ... "part labels" in axis coords.
+    va and ha set the alignment of the above labels
+    xlabels and ylabels should be lists of integers specifying which axes have x axis and y axis labels.  Leave as
+        None to label the middle axis, or True to label all axes
+    aspect (if not None) sets the aspect of the plot - defaults to 1
+    part_number_offset starts the figure part labels from later in the sequence - e.g. if it's 3, then we start at (d).
+    """
+    for i, ax in enumerate(axes):
+        ax.set_adjustable('box-forced') # avoid extraneous whitespace (https://github.com/matplotlib/matplotlib/issues/1789/)
+        if aspect is not None:
+            ax.set_aspect(aspect) # X and Y are both in pixels - so make sure it's isotropic.
+        if label_pos is not False:
+            ax.text(label_pos[0], label_pos[1], "(" + chr(i+97+part_number_offset) + ")", va=va, ha=ha, transform=ax.transAxes)
+    if xlabels is None:
+        xlabels = [len(axes)//2]
+    if xlabels is True:
+        xlabels = range(len(axes))
+    if ylabels is True:
+        ylabels = range(len(axes))
+    if xlabel is not None:
+        for i in xlabels:
+            axes[i].set_xlabel(xlabel)
+    if ylabel is not None:
+        for i in ylabels:
+            axes[i].set_ylabel(ylabel)
+   
+    
+def analyse_distortion(dir):
+    """Analyse folders full of horizontal and vertical edge images for distortion"""
+    liness, positionss = load_edges(dir)
+    liness, deviationss = find_mask_and_deviationss(liness)
+    
+    # Fit the distortion with a purely radial function
+    reduction = 50 # Work at reduced resolution, to decrease noise and increase speed...
+    reduced_liness, reduced_deviationss = [], []
+    for lines, deviations in zip(liness, deviationss):
+        reduced_liness.append(reduce_1d(lines, 50, axis=2))
+        reduced_deviationss.append(reduce_1d(deviations, 50, axis=2))
+
+    def cost_function(coeffs, centre=None):
+        """Return the error between calculated and actual deviations.  
         
-        blocksize = 50
-        deviation_from_linearity = np.zeros((lines.shape[0], lines.shape[2]//blocksize))
-        deviation_from_mean = np.zeros_like(deviation_from_linearity)
-        clean_lines = np.zeros(lines.shape[0])
-        for i in range(lines.shape[0]):
-            if noise_on_line(lines[i,...]) < 10:
-                clean_lines[i] = 1
-        mean_line = np.mean(lines*clean_lines[:,np.newaxis,np.newaxis], axis=0)/np.mean(clean_lines) # the mean shape should ignore bad lines.
-        mean_y = np.zeros(lines.shape[0])
-        for i in range(lines.shape[0]):
-            # Perform a linear fit, and subtract the fitted line, to get deviation from linearity
-            ys = lines[i,changing_axis,:].copy()
-            mean_y[i] = np.mean(ys)
-            xs = lines[i,(changing_axis + 1) % 2,:]
-            m = np.polyfit(xs, ys, 1, w=np.logical_and(ys > 100, ys < max_changing_axis)) #fit a straight line
-            delin_ys = ys - m[0]*xs - m[1]
-            demean_ys = ys - mean_line[changing_axis,:]
-            demean_ys -= np.mean(demean_ys)
-            assert np.all(demean_ys.shape == ys.shape)
-            # take a block average of the line, after detrending, to use for the image plot
-            deviation_from_linearity[i,:] = delin_ys[:deviation_from_linearity.shape[1]*blocksize].reshape(deviation_from_linearity.shape[1], blocksize).mean(axis=1)
-            deviation_from_mean[i,:] = demean_ys[:deviation_from_mean.shape[1]*blocksize].reshape(deviation_from_linearity.shape[1], blocksize).mean(axis=1)
-            if clean_lines[i]>0: #some images may not have an edge(e.g. if it was off-screen)
-                axes[0].plot(lines[i,0,:], lines[i,1,:])
-                for i, m in enumerate([5, 10, 50]):
-                    ex = xs
-                    ey = ys + demean_ys * m
-                    if changing_axis == 0:
-                        ex, ey = ey, ex
-                    ax7[i].plot(ex, ey)
-                ax3[changing_axis].plot(scipy.ndimage.gaussian_filter(demean_ys, sigma=20))
-                axes[changing_axis+1].plot(scipy.ndimage.gaussian_filter(delin_ys, sigma=20))
-                cx, cy = (1640, 1232) if changing_axis ==0 else (1232, 1640)
-                rs = np.sqrt((xs-cx)**2 + (ys-cy)**2)
-                max_r = max(max_r, rs.max())
-                ax5.plot(rs, scipy.ndimage.gaussian_filter(demean_ys, sigma=20) * rs/ys, linewidth=0.5)
-        vrange = np.percentile(np.abs(deviation_from_linearity * clean_lines[:,np.newaxis]), 95) # there may be some noisy images - using centiles is robust to these.
-        image = ax2[changing_axis].imshow(deviation_from_linearity, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
-        f2.colorbar(image)
-        vrange = np.percentile(np.abs(deviation_from_mean * clean_lines[:,np.newaxis]), 95)
-        image = ax4[changing_axis].imshow(deviation_from_mean, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
-        f4.colorbar(image)
-        # plot pixels vs stage position
+        The first two elements of coeffs are interpreted as the centre if it's not passed explicitly.
+        """
+        if centre is None:
+            mdevss = modelled_deviationss(coeffs[:2], coeffs[2:], reduced_liness)
+        else:
+            mdevss = modelled_deviationss(centre, coeffs, reduced_liness)
+        cost = 0
+        for i in range(2):
+            cost += np.var((mdevss[i] - reduced_deviationss[i]))
+        return cost
+    camera_centre = [(l.shape[2]-1)/2 for l in reversed(liness)] # this is the centre of the camera
+    res = scipy.optimize.minimize(cost_function, np.array(camera_centre + [0]*4)) # actually run the optimisation...
+    
+    figures = []
+    # Plot the lines as extracted from the images
+    f, axes = plt.subplots(1,4)
+    figures.append(f)
+    gain = 20
+    reduction = 50
+    axes[0].set_title("Lines as found on the images")
+    axes[1].set_title("Deviations magnified {}x".format(gain))
+    axes[2].set_title("With modelled deviations")
+    axes[3].set_title("Residual deviations")
+    md = modelled_deviationss(res.x[:2], res.x[2:], liness)
+    for lines, dev, mod in zip(liness, deviationss, md):
+        for j in range(lines.shape[0]):
+            axes[0].plot(reduce_1d(lines[j,0,:], reduction), reduce_1d(lines[j,1,:], reduction))
+            axes[1].plot(reduce_1d(lines[j,0,:] - dev[j,0,:] + dev[j,0,:]*gain, reduction), 
+                         reduce_1d(lines[j,1,:] - dev[j,1,:] + dev[j,0,:]*gain, reduction))
+            axes[2].plot(reduce_1d(lines[j,0,:] - dev[j,0,:] + mod[j,0,:]*gain, reduction), 
+                         reduce_1d(lines[j,1,:] - dev[j,1,:] + mod[j,0,:]*gain, reduction))
+            axes[3].plot(reduce_1d(lines[j,0,:] - dev[j,0,:] + (dev-mod)[j,0,:]*gain, reduction), 
+                         reduce_1d(lines[j,1,:] - dev[j,1,:] + (dev-mod)[j,0,:]*gain, reduction))
+    tidy_pixel_axes(axes)
+    
+    # Plot the radial deviations, along with the model
+    fig, axes = plt.subplots(1,2, figsize=(8,3), sharex=True, sharey=True)
+    figures.append(fig)
+    dr_spline = make_dr_spline(np.concatenate([[0.], res.x[2:]]), liness)
+    centre = np.array(res.x[:2])
+    for i, (lines, deviations) in enumerate(zip(liness, deviationss)):
+        pos = lines - centre[np.newaxis,:,np.newaxis] #positions relative to centre
+        radii = np.sqrt(np.sum(pos**2, axis=1)) #radii, for each point on each line
+        dr = deviations[:,i,:] * radii / pos[:,i,:]
+        for j in range(radii.shape[0]):
+            axes[0].plot(reduce_1d(radii[j,:], 50), reduce_1d(dr[j,:], 50), '.', markersize=2.0)
+            axes[1].plot(reduce_1d(radii[j,:], 50), reduce_1d(dr[j,:] - dr_spline(radii[j,:]), 50))
+    modelled_deviationss_max_r = np.sqrt(np.sum([l.shape[2]**2 for l in liness]))/2
+    radii = np.linspace(0, modelled_deviationss_max_r, 200)
+    axes[0].plot(radii, dr_spline(radii), '-', linewidth=2, color="black")
+    axes[0].plot(radii, np.zeros_like(radii), '-', linewidth=2, color="black")
+    for ax in axes:
+        ax.set_ylim((-10,10))
+        ax.set_xlabel("Radial position (pixels)")
+    axes[0].set_ylabel("Radial distortion (pixels)")
+    axes[0].set_title("Radial distortion, with fit")
+    axes[0].set_title("Residuals")
+
+    # plot distortion as images
+    fig, axes = plt.subplots(2,3, figsize=(8,8))
+    figures.append(fig)
+    reduction = 100 # it makes sense to average pixels together quite aggressively
+    md = modelled_deviationss(res.x[:2], res.x[2:], liness)
+    for i, (deviations, modelled) in enumerate(zip(deviationss, md)):
+        rdev = reduce_1d(deviations, reduction, axis=2)[:,i,:]
+        rmdev = reduce_1d(modelled, reduction, axis=2)[:,i,:]
+        vrange = np.percentile(np.abs(rdev), 95)
+        axes[i,0].imshow(rdev, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
+        axes[i,1].imshow(rmdev, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
+        im = axes[i,2].imshow(rdev-rmdev, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
+        fig.colorbar(im)
+        tidy_pixel_axes(axes[i,:], aspect=None, xlabel="pixel position (/{})".format(reduction), 
+                        ylabel="edge position", part_number_offset=i*len(axes))
+
+    # plot stage vs image position (to calibrate the stage)
+    fig, axes = plt.subplots(1,2, figsize=(8,4))
+    figures.append(fig)
+    for i, (lines, positions) in enumerate(zip(liness, positionss)):
         stage_changing_axis = np.argmax(np.std(positions, axis=0)) # find which direction the *stage* is moving in
         stage_y = positions[:,stage_changing_axis]
-        m = np.polyfit(stage_y, mean_y, 1, w=clean_lines)
-        ax6[changing_axis].plot(stage_y, mean_y, 'k+')
-        ax6[changing_axis].plot(stage_y, stage_y*m[0]+m[1], 'b-')
-        ax6[changing_axis].text(0.5, 0.01, '{:.2f}px/step'.format(np.abs(m[0])),
-            verticalalignment='bottom', horizontalalignment='center', transform=ax6[changing_axis].transAxes)
-    axes[0].set_aspect(1)
-    axes[0].set_xlabel("Position in image (pixels)")
-    axes[0].set_ylabel("Position in image (pixels)")
-    for i in range(3):
-        ax7[i].set_aspect(1)
-        ax7[i].set_xlim(axes[0].get_xlim())
-        ax7[i].set_ylim(axes[0].get_ylim())
-    ax5.set_ylim((-5,5))
-    ax5.plot([0,max_r],[0,0],'k-', linewidth=2)
-    return((f, f2, f3, f4, f5, f6, f7))
+        camera_y = np.mean(lines[:,i,:], axis=1)
+        m = np.polyfit(stage_y, camera_y, 1)
+        axes[i].plot(stage_y, camera_y, 'k+')
+        axes[i].plot(stage_y, stage_y*m[0]+m[1], 'b-')
+        axes[i].text(0.5, 0.01, '{:.2f}px/step'.format(np.abs(m[0])),
+            verticalalignment='bottom', horizontalalignment='center', transform=axes[i].transAxes)
+        axes[i].set_title("stage vs pixels" + ["(h)","(v)"][i])
+    
+    return figures
     
 def analyse_dir(dir, summary_pdfs={}):
     """Analyse a folder of edge images for distortion.
@@ -245,11 +415,11 @@ def analyse_dir(dir, summary_pdfs={}):
     
 def analyse_dirs(dirs):
     """Analyse a series of directories, generating summary PDFs as well as individual ones."""
-    with PdfPages("distortion_summary_radial.pdf") as summary_radial, \
-        PdfPages("distortion_summary_images.pdf") as summary_images, \
-        PdfPages("distortion_summary_grids.pdf") as summary_grids:
+    with PdfPages("distortion_summary_grids.pdf") as summary_grids, \
+        PdfPages("distortion_summary_radial.pdf") as summary_radial, \
+        PdfPages("distortion_summary_images.pdf") as summary_images:
         for dir in dirs:
-            analyse_dir(dir, summary_pdfs={4:summary_radial, 0:summary_grids, 3:summary_images})
+            analyse_dir(dir, summary_pdfs={0:summary_grids, 1:summary_radial, 2:summary_images})
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
