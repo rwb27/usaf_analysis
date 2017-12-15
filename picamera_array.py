@@ -56,6 +56,7 @@ from numpy.lib.stride_tricks import as_strided
 #    PiCameraDeprecated,
 #    PiCameraPortDisabled,
 #    )
+PiCameraValueError = ValueError
 import mo_stub as mo
 
 motion_dtype = np.dtype([
