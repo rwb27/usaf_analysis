@@ -2,10 +2,9 @@ from __future__ import print_function
 #import microscope
 #import picamera
 import numpy as np
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import time
 import picamera_array
-import matplotlib.pyplot as plt
 import cv2
 import PIL.Image
 import PIL.ExifTags
@@ -45,7 +44,8 @@ def extract_file(filename):
         f.write(exif_data_as_string(jpeg))
     
     # extract raw bayer data
-    cv2.imwrite(root_fname + "_raw.tif", bayer_array.demosaic())
+    cv2.imwrite(root_fname + "_raw16.tif", bayer_array.demosaic())
+    cv2.imwrite(root_fname + "_raw8.png", (bayer_array.demosaic()//4).astype(np.uint8))
 
 if __name__ == "__main__":
     for filename in sys.argv[1:]:

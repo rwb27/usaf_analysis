@@ -56,6 +56,7 @@ def exif_data_as_string(image):
     ssv = exif_data['ShutterSpeedValue']
     exposure_time = 1/2.0**(float(ssv[0])/ssv[1])
     output += kv_to_string("exposure_time", exposure_time, ":.4")
+    return output
     
 
 if __name__ == "__main__":
