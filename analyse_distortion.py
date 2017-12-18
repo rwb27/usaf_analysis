@@ -221,7 +221,8 @@ def make_dr_spline(dr, liness):
     dr = np.concatenate([[0.], dr]) #fix the centre as zero distortion
     # we model the radial distortion as a function of radius, using cubic interpolation
     # the "x axis" of the function goes from zero to half the diagonal (points beyond are interpolated)
-    modelled_deviationss_max_r = np.sqrt(np.sum([l.shape[2]**2 for l in liness]))/2 # half the diagonal
+    modelled_deviationss_max_r = np.sqrt(np.sum([np.max(l[:,(i+1)%2,:])**2 
+                                                 for i, l in enumerate(liness)]))/2 # half the diagonal
     dr_spline = scipy.interpolate.interp1d(np.linspace(0,modelled_deviationss_max_r,len(dr)),
                                       dr, kind="cubic", bounds_error=False, fill_value="extrapolate")
     def wrapped_dr_spline(radii):
@@ -251,7 +252,24 @@ def modelled_deviationss(centre, dr, liness):
                                          # NB there's an approximation here because the edge isn't perfectly along x or y...
         deviationss.append(deviations)
     return deviationss
-            
+
+def plot_lines(ax, lines, deviations=None, reduction=1):
+    """Plot lines, first making all the lines the same shape, then adding some deviation to them.
+    
+    ax is the matplotlib Axes into which we draw the lines
+    lines should be an Nx2xM array, with N lines each having M points on them.
+    deviations should have the same shape as lines, if specified
+    reduction does block averaging on the lines to remove noise and speed up plotting.
+    """
+    line_centres = np.mean(lines, axis=2)
+    mean_line = np.mean(lines - line_centres[:,:,np.newaxis], axis=0)
+    if deviations is None:
+        # if deviations is none, set it so we plot the original lines...
+        deviations = lines - (line_centres[:,:,np.newaxis] + mean_line[np.newaxis,:,:])
+    for i in range(lines.shape[0]):
+        ax.plot(reduce_1d(line_centres[i,0] + mean_line[0,:] + deviations[i,0,:], reduction),
+                reduce_1d(line_centres[i,1] + mean_line[1,:] + deviations[i,1,:], reduction))
+    
 def tidy_pixel_axes(axes, 
                     label_pos=(0.03,0.97), 
                     va="top", ha="left", 
@@ -267,6 +285,8 @@ def tidy_pixel_axes(axes,
         None to label the middle axis, or True to label all axes
     aspect (if not None) sets the aspect of the plot - defaults to 1
     part_number_offset starts the figure part labels from later in the sequence - e.g. if it's 3, then we start at (d).
+    
+    This works very nicely with plot_lines...
     """
     for i, ax in enumerate(axes):
         ax.set_adjustable('box-forced') # avoid extraneous whitespace (https://github.com/matplotlib/matplotlib/issues/1789/)
@@ -310,17 +330,22 @@ def analyse_distortion(dir):
         else:
             mdevss = modelled_deviationss(centre, coeffs, reduced_liness)
         cost = 0
-        for i in range(2):
-            cost += np.var((mdevss[i] - reduced_deviationss[i]))
+        for devs, mdevs in zip(reduced_deviationss, mdevss):
+        # NB we're not sensitive to distortion that appears to move the whole line, so we
+        # subtract the mean of each line, to get rid of shifts like that.  Otherwise, it acts
+        # as a built-in penalty for large distortions.
+            cost += np.var((mdevs - devs) - np.mean(mdevs - devs, axis=2)[:,:,np.newaxis])
         return cost
+        
     camera_centre = [(l.shape[2]-1)/2 for l in reversed(liness)] # this is the centre of the camera
     res = scipy.optimize.minimize(cost_function, np.array(camera_centre + [0]*4)) # actually run the optimisation...
     
     figures = []
+    matplotlib.rcParams.update({'font.size':6})
     # Plot the lines as extracted from the images
-    f, axes = plt.subplots(1,4)
+    f, axes = plt.subplots(1,4, sharex=True, sharey=True, figsize=(8,2.5), )
     figures.append(f)
-    gain = 20
+    gain = 50
     reduction = 50
     axes[0].set_title("Lines as found on the images")
     axes[1].set_title("Deviations magnified {}x".format(gain))
@@ -328,14 +353,10 @@ def analyse_distortion(dir):
     axes[3].set_title("Residual deviations")
     md = modelled_deviationss(res.x[:2], res.x[2:], liness)
     for lines, dev, mod in zip(liness, deviationss, md):
-        for j in range(lines.shape[0]):
-            axes[0].plot(reduce_1d(lines[j,0,:], reduction), reduce_1d(lines[j,1,:], reduction))
-            axes[1].plot(reduce_1d(lines[j,0,:] - dev[j,0,:] + dev[j,0,:]*gain, reduction), 
-                         reduce_1d(lines[j,1,:] - dev[j,1,:] + dev[j,0,:]*gain, reduction))
-            axes[2].plot(reduce_1d(lines[j,0,:] - dev[j,0,:] + mod[j,0,:]*gain, reduction), 
-                         reduce_1d(lines[j,1,:] - dev[j,1,:] + mod[j,0,:]*gain, reduction))
-            axes[3].plot(reduce_1d(lines[j,0,:] - dev[j,0,:] + (dev-mod)[j,0,:]*gain, reduction), 
-                         reduce_1d(lines[j,1,:] - dev[j,1,:] + (dev-mod)[j,0,:]*gain, reduction))
+        plot_lines(axes[0], lines, reduction=reduction)
+        plot_lines(axes[1], lines, dev*gain, reduction=reduction)
+        plot_lines(axes[2], lines, mod*gain, reduction=reduction)
+        plot_lines(axes[3], lines, (dev-mod)*gain, reduction=reduction)
     tidy_pixel_axes(axes)
     
     # Plot the radial deviations, along with the model
@@ -344,22 +365,26 @@ def analyse_distortion(dir):
     dr_spline = make_dr_spline(np.concatenate([[0.], res.x[2:]]), liness)
     centre = np.array(res.x[:2])
     for i, (lines, deviations) in enumerate(zip(liness, deviationss)):
-        pos = lines - centre[np.newaxis,:,np.newaxis] #positions relative to centre
-        radii = np.sqrt(np.sum(pos**2, axis=1)) #radii, for each point on each line
-        dr = deviations[:,i,:] * radii / pos[:,i,:]
+        pos = lines - centre[np.newaxis,:,np.newaxis] # positions relative to centre
+        radii = np.sqrt(np.sum(pos**2, axis=1)) # radii, for each point on each line
+        cosines = pos[:,i,:] / radii # the deviation we measure is out by a factor cos(angle)
+        dr = deviations[:,i,:] / cosines
+        # we can't measure shift of the whole line, so find the mean shift of the model and add it.
+        # NB the model calculates dr, so first convert to dy, then take the mean, then back to dr
+        dr += np.mean(dr_spline(radii) * cosines) / cosines
         for j in range(radii.shape[0]):
             axes[0].plot(reduce_1d(radii[j,:], 50), reduce_1d(dr[j,:], 50), '.', markersize=2.0)
-            axes[1].plot(reduce_1d(radii[j,:], 50), reduce_1d(dr[j,:] - dr_spline(radii[j,:]), 50))
+            axes[1].plot(reduce_1d(radii[j,:], 50), reduce_1d(dr[j,:] - dr_spline(radii[j,:]), 50), '.', markersize=2.0)
     modelled_deviationss_max_r = np.sqrt(np.sum([l.shape[2]**2 for l in liness]))/2
     radii = np.linspace(0, modelled_deviationss_max_r, 200)
     axes[0].plot(radii, dr_spline(radii), '-', linewidth=2, color="black")
-    axes[0].plot(radii, np.zeros_like(radii), '-', linewidth=2, color="black")
+    axes[1].plot(radii, np.zeros_like(radii), '-', linewidth=2, color="black")
     for ax in axes:
         ax.set_ylim((-10,10))
         ax.set_xlabel("Radial position (pixels)")
     axes[0].set_ylabel("Radial distortion (pixels)")
     axes[0].set_title("Radial distortion, with fit")
-    axes[0].set_title("Residuals")
+    axes[1].set_title("Residuals")
 
     # plot distortion as images
     fig, axes = plt.subplots(2,3, figsize=(8,8))
@@ -369,11 +394,12 @@ def analyse_distortion(dir):
     for i, (deviations, modelled) in enumerate(zip(deviationss, md)):
         rdev = reduce_1d(deviations, reduction, axis=2)[:,i,:]
         rmdev = reduce_1d(modelled, reduction, axis=2)[:,i,:]
+        rmdev -= np.mean(rmdev, axis=1)[:,np.newaxis] # get rid of whole-line shifts, as we can't measure them anyway
         vrange = np.percentile(np.abs(rdev), 95)
         axes[i,0].imshow(rdev, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
         axes[i,1].imshow(rmdev, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
         im = axes[i,2].imshow(rdev-rmdev, aspect="auto", vmin=-vrange, vmax=vrange, cmap="PuOr")
-        fig.colorbar(im)
+        fig.colorbar(im, ax=axes[i,2])
         tidy_pixel_axes(axes[i,:], aspect=None, xlabel="pixel position (/{})".format(reduction), 
                         ylabel="edge position", part_number_offset=i*len(axes))
 

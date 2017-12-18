@@ -33,7 +33,31 @@ def parse_maker_note(maker_note):
     
 def print_kv(k, v, format=""):
     """Consistently print a key-value pair"""
-    print(("{0: >28}: {1" + format + "}").format(k, v))
+    print(kv_to_string(k, v, format=format))
+    
+def kv_to_string(k, v, format=""):
+    """Consistently output a key-value pair as text"""
+    return ("{0: >28}: {1" + format + "}").format(k, v)
+    
+def exif_data_as_string(image):
+    """Extract the EXIF data from a PIL image object, and format as a string."""
+    exif_data = formatted_exif_data(image)
+    output = ""
+    for k, v in exif_data.iteritems():
+        output += kv_to_string(k, v) + "\n"
+        
+    camera_parameters = parse_maker_note(exif_data['MakerNote'])
+    output += "MakerNote Expanded:\n"
+    for k, v in camera_parameters.iteritems():
+        output += kv_to_string(k, v) + "\n"
+        
+    output += "Derived Values:\n"
+    # calculate exposure time - see https://www.media.mit.edu/pia/Research/deepview/exif.html
+    ssv = exif_data['ShutterSpeedValue']
+    exposure_time = 1/2.0**(float(ssv[0])/ssv[1])
+    output += kv_to_string("exposure_time", exposure_time, ":.4")
+    return output
+    
 
 if __name__ == "__main__":
     try:
@@ -45,19 +69,4 @@ if __name__ == "__main__":
         exit(-1)
         
     image = PIL.Image.open(sys.argv[1])
-    exif_data = formatted_exif_data(image)
-    for k, v in exif_data.iteritems():
-        print_kv(k, v)
-        
-    camera_parameters = parse_maker_note(exif_data['MakerNote'])
-    print("MakerNote Expanded:")
-    for k, v in camera_parameters.iteritems():
-        print_kv(k, v)
-        
-    print("Derived Values:")
-    useful_metadata = {}
-    # calculate exposure time - see https://www.media.mit.edu/pia/Research/deepview/exif.html
-    ssv = exif_data['ShutterSpeedValue']
-    exposure_time = 1/2.0**(float(ssv[0])/ssv[1])
-    useful_metadata['exposure_time'] = exposure_time
-    print_kv("exposure_time", exposure_time, ":.4")
+    print(exif_data_as_string(image))
