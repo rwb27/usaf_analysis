@@ -20,7 +20,7 @@ def parse_maker_note(maker_note):
     """Split the "maker note" EXIF field from a Raspberry Pi camera image into useful parameters"""
     camera_parameters = {}
     last_key = None
-    for p in maker_note.split(" "):
+    for p in maker_note.decode().split(" "):
         # The maker note contains <thing>=<thing> entries, space delimited but with spaces in some values.
         # So, if there is an = then we assume we've got key=value, but if there is no = sign, we append
         # the current chunk to the latest value, because that's where it probably belongs...
@@ -43,12 +43,12 @@ def exif_data_as_string(image):
     """Extract the EXIF data from a PIL image object, and format as a string."""
     exif_data = formatted_exif_data(image)
     output = ""
-    for k, v in exif_data.iteritems():
+    for k, v in exif_data.items():
         output += kv_to_string(k, v) + "\n"
         
     camera_parameters = parse_maker_note(exif_data['MakerNote'])
     output += "MakerNote Expanded:\n"
-    for k, v in camera_parameters.iteritems():
+    for k, v in camera_parameters.items():
         output += kv_to_string(k, v) + "\n"
         
     output += "Derived Values:\n"

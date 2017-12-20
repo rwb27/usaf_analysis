@@ -45,6 +45,7 @@ import os.path
 from skimage.io import imread
 from matplotlib.backends.backend_pdf import PdfPages
 from analyse_distortion import find_edge_orientation
+from extract_raw_image import load_raw_image
 import analyse_distortion
 
 #################### Rotate the image so the bars are X/Y aligned #############
@@ -167,7 +168,12 @@ def analyse_file(fname, fuzziness=5, subsampling = 1, blocks = 11, plot=False, s
         into that PDF.
     """
     print("Processing {}...".format(fname),end="")
-    image = imread(fname)
+    try:
+        image = (load_raw_image(fname).demosaic()//4).astype(np.uint8)
+    except Exception as e:
+        print("Can't load raw data for {}, falling back to JPEG data".format(fname))
+        print(e)
+        image = imread(fname)
     original_image = image
     horizontal, falling = find_edge_orientation(image, fuzziness=fuzziness)  # figure out the direction of the edge
     if horizontal:
@@ -220,7 +226,7 @@ def analyse_files(fnames, output_dir=".", **kwargs):
             psf_list.append(psfs)
             plt.close(fig)
     np.savez(os.path.join(output_dir, "edge_analysis.npz"), filenames=fnames, psfs=psf_list)
-    return psf_list
+    return np.array(psf_list)
     
 def edge_image_fnames(folder):
     """Find all the images in a folder that look like edge images"""

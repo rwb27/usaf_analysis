@@ -40,13 +40,19 @@ def cached_psfs(folder, fnames):
 
 def analyse_zstack(folder):
     """Find the point spread function of each image in a Z stack series"""
-    # The folder usually contains raw and non-raw versions - use the non-raw ones (for now)
-    fnames = [f for f in os.listdir(folder) if f.startswith("edge_zstack") and f.endswith(".jpg") and "raw" not in f]
+    # The folder usually contains raw and non-raw versions - use the raw ones if possible
+    try:
+        fnames = [f for f in os.listdir(folder) if f.startswith("edge_zstack") and f.endswith(".jpg") and "raw" in f]
+        assert len(fnames) > 0
+    except:
+        print("Falling back to non-raw images.")
+        fnames = [f for f in os.listdir(folder) if f.startswith("edge_zstack") and f.endswith(".jpg")]
     # Extract the stage position from the filenames
     positions = np.array([analyse_distortion.position_from_filename(f) for f in fnames])
     assert np.all(np.var(positions, axis=0)[:2] == 0), "Only the Z position should change!"
     # extract the PSFs
     try:
+        raise Exception("I don't want to use the cache.")
         psfs = cached_psfs(folder, fnames)
     except:
         print("Couldn't find cached PSFs, analysing images (may take some time...")
