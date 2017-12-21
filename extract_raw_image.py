@@ -18,7 +18,7 @@ class DummyCam(object):
     revision = 'IMX219'
     sensor_mode = 0
     
-def load_raw_image(filename, ArrayType=picamera_array.PiBayerArray, open_jpeg=False):
+def load_raw_image(filename, ArrayType=picamera_array.PiSharpBayerArray, open_jpeg=False):
     with open(filename, mode="rb") as file:
         jpeg = file.read()
     cam = DummyCam()

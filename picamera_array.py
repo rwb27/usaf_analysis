@@ -558,6 +558,32 @@ class PiBayerArray(PiArrayOutput):
                 self._demo[..., plane] = psum // bsum
         return self._demo
 
+class PiSharpBayerArray(PiBayerArray):
+    """A PiBayerArray, demosaiced so as to preserve sharpness a bit more (esp. for green)"""
+    def demosaic(self):
+        if self._demo is None:
+            # Construct 3D representation of Bayer data (if necessary)
+            if self.output_dims == 2:
+                array_3d = self._to_3d(self.array)
+            else:
+                array_3d = self.array.copy()
+            # Construct representation of the bayer pattern
+            (
+                (ry, rx), (gy, gx), (Gy, Gx), (by, bx)
+                ) = PiBayerArray.BAYER_OFFSETS[self._header.bayer_order]
+            output = np.empty_like(array_3d)
+            assert gy != Gy and gx != Gx, "Green pixels must be diagonal"
+            from scipy.ndimage.filters import convolve
+            for i in range(3):
+                a, b = (1, 0) if i==1 else (2, 1)
+                weights = np.array([[b,  a , b],
+                                    [a, 4, a],
+                                    [b,  a , b]], dtype=np.uint16)
+            #    weights = np.array([[2,4,2]], dtype=np.uint16)
+                convolve(array_3d[:,:,i], weights, output=output[:,:,i], mode='constant', cval=0.0)
+            self._demo = output//4
+        return self._demo
+            
 
 class PiFastBayerArray(PiBayerArray):
     _demo_shift = None # cache the value of "shift" used in demosaicing
