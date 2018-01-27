@@ -27,6 +27,8 @@ import docopt
 import curses
 import curses.ascii
 import picamera
+import picamera.array
+from scipy import ndimage
 from openflexure_stage import OpenFlexureStage
 
 def round_resolution(res):
@@ -197,7 +199,7 @@ def validate_filepath(filepath):
     if "%d" not in filepath and ".jp" not in filepath:
         if not os.path.isdir(filepath):
             os.mkdir(filepath)
-        return os.path.join(filepath, "image_%03d.jpg")
+        return os.path.join(filepath, "image_%05d.jpg")
 
     elif "%d" not in filepath and ".jp" in filepath:
         'add automatic numbering to filename'
@@ -235,6 +237,8 @@ if __name__ == '__main__':
     else: #if argv['control']:
         def move_stage_with_keyboard(stdscr):
             stdscr.addstr(0,0,"wasd to move in X/Y, qe for Z\n"
+                          "l to print AWB gains\n"
+                          "z to autofocus\n"
                           "r/f to decrease/increase step.\n"
                           "v/b to start/stop video preview.\n"
                           "i/o to zoom in/out.\n"
@@ -318,7 +322,8 @@ if __name__ == '__main__':
                         camera.annotate_text="Saving '%s'" % (filepath % n)
                         camera.annotate_text="Saved '%s'" % (filepath % n)
                         camera.annotate_text="analog_gain: {}, digital_gain:{}, exposure_compensation: {}, ISO: {}, awb_gains: {}_{}, contrast: {}, brightness: {}, exposure_speed: {}, shutter_speed: {}".format(camera.analog_gain, camera.digital_gain, camera.exposure_compensation, camera.iso, camera.awb_gains[0], camera.awb_gains[1], camera.contrast, camera.brightness, camera.exposure_speed, camera.shutter_speed)
-                        camera.capture(filepath % n, format="jpeg", bayer=True)
+                        camera.capture(filepath % n, bayer=True)
+                               
                         try:
                             stdscr.addstr("Saved '%s'\n" % (filepath % n))
                         except:
@@ -326,7 +331,7 @@ if __name__ == '__main__':
                         time.sleep(0.5)
                         #camera.annotate_text=""
                     elif c == "p":
-                        camera.annotate_text="Position '%s'" % str(stage.position)
+                        camera.annotate_text="Position '%s' Step '%d'" % (str(stage.position), step)
                         try:
                             stdscr.addstr("Position '%s'\n" % str(stage.position))
                         except:
@@ -353,6 +358,8 @@ if __name__ == '__main__':
                         if len(new_filepath) > 3:
                             filepath = validate_filepath(new_filepath)
                         stdscr.addstr("New output filepath: %s\n" % filepath)
+                    elif c == "z":
+                        ms.autofocus(np.linspace(-200,200,11), backlash=200)
 
         curses.wrapper(move_stage_with_keyboard)
 
