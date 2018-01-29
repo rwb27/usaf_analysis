@@ -53,7 +53,12 @@ def find_edge(image, fuzziness = 5, smooth_x = 5, plot=False):
     """Find the line that best fits an edge
 
     We reduce images to 2D if they are colour and that the edge is rising and approximately vertical (i.e.
-    it goes from low to high as we increase the second array index)"""
+    it goes from low to high as we increase the second array index).
+	
+	Returns: xs, ys
+		xs: the X values used for fitting the line (np.arange(image.shape[0]))
+		ys: the index of the edge, for each value of X
+	"""
     if len(image.shape) > 2:
         image = np.mean(image, axis=2) #ensure grayscale
     #ys = np.zeros(image.shape[0])
