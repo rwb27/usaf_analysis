@@ -40,6 +40,7 @@ def find_edge_orientation(image, fuzziness = 5):
     The first element of the tuple tells us if the edge is horizontal (true) or vertical (false)
     The second tells us if the edge is low-high (false) or high-low (true).
     """
+    """
     edge_scores = []
     gray_image = np.mean(image, axis=2, dtype=np.float)
     for order in [(0,1), (1,0)]: #repeat this twice, taking derivative in X and Y
@@ -48,6 +49,16 @@ def find_edge_orientation(image, fuzziness = 5):
         edge_scores.append(np.max(-edge_image)) #edge strength assuming it's a falling edge
     orientations = [(h, f) for h in [False, True] for f in [False, True]]
     return orientations[np.argmax(edge_scores)]
+    """
+    variances = []
+    slopes = []
+    for axis in range(2):
+        marginal = np.mean(np.mean(image, axis=axis, dtype=np.float), axis=1)
+        variances.append(np.var(marginal))
+        slopes.append(np.polyfit(np.arange(len(marginal)), marginal, 1)[0])
+    horizontal = variances[1] < variances[0]
+    falling = slopes[0 if horizontal else 1] < 01
+    return horizontal, falling
 
 def find_edge(image, fuzziness = 5, smooth_x = 5, plot=False):
     """Find the line that best fits an edge

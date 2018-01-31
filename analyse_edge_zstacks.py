@@ -23,20 +23,23 @@ import analyse_edge_image
 import analyse_distortion
 
 def cached_psfs(folder, fnames):
-    """Attempt to retrieve the previously-analysed PSF from a file"""
+    """Attempt to retrieve the previously-analysed PSF/ESF from a file"""
     npz = np.load(os.path.join(folder, "edge_analysis.npz"))
     cached_fnames = npz['filenames']
     cached_psfs = npz['psfs']
+    cached_esfs = npz['esfs']
     psfs = np.zeros((len(fnames), ) + cached_psfs.shape[1:], dtype=cached_psfs.dtype)
+    esfs = np.zeros((len(fnames), ) + cached_esfs.shape[1:], dtype=cached_esfs.dtype)
     for i, fname in enumerate(fnames):
         hit = False
         for j, cached_fname in enumerate(cached_fnames):
             if cached_fname.endswith(fname):
                 psfs[i,...] = cached_psfs[j,...]
+                esfs[i,...] = cached_esfs[j,...]
                 hit = True
                 break
         assert hit, "Couldn't find a match for {}".format(fname)
-    return psfs
+    return psfs, esfs, npz['subsampling']
 
 def analyse_zstack(folder):
     """Find the point spread function of each image in a Z stack series"""
@@ -53,10 +56,10 @@ def analyse_zstack(folder):
     # extract the PSFs
     try:
         raise Exception("I don't want to use the cache.")
-        psfs = cached_psfs(folder, fnames)
+        psfs, esfs, subsampling = cached_psfs(folder, fnames)
     except:
         print("Couldn't find cached PSFs, analysing images (may take some time...")
-        psfs = analyse_edge_image.analyse_files([os.path.join(folder, f) for f in fnames], output_dir=folder)
+        psfs, esfs, subsampling = analyse_edge_image.analyse_files([os.path.join(folder, f) for f in fnames], output_dir=folder)
     # plot the PSFs as YZ slices
     blocks = psfs.shape[1]
     zs = positions[:,2]
