@@ -66,31 +66,18 @@ def reorient_image(image, horizontal, falling):
         image = image[:, ::-1, ...]  # for falling edges, flip the image so they're rising
     return image
     
-def locate_edge(image, fuzz=10, refine=False):
-    """Use a fit to an edge function to locate the edge"""
+def locate_edge(image, fuzz=10):
+    """Fit the peak gradients of the image with a straight line.
+    
+    Returns: (horizontal, line)
+        horizontal: bool
+            Whether the line is closer to horizontal than vertical.
+        line: tuple of two floats (gradient, intercept)
+            The equation of the line.  If "horizontal", y=gradient*x + intercept.
+            If horizontal is false, then x=y*gradient + intercept.  x and y refer
+            to the first and second array indices of the image respectively.
     """
-    thumbnail = reduce_1d(reduce_1d(np.mean(image, axis=2, dtype=np.float), downsample, axis=0), downsample, axis=1)
-    black = np.min(thumbnail)
-    white = np.max(thumbnail)
-    xs = (np.arange(thumbnail.shape[0]) + 0.5) * downsample
-    ys = (np.arange(thumbnail.shape[1]) + 0.5) * downsample
-    def error(line):
-        edge = ys[np.newaxis, :] - xs[:,np.newaxis] * line[0] + line[1]
-        return np.sum(-(edge * thumbnail))
-    res = scipy.optimize.minimize(error, [0, image.shape[1]/2])
-    if res.success:
-        return res.x
-    else:
-        print(res)
-        raise Exception("can't find the edge :(")
-    """
-    """ # old method: just find max gradient along each column
-    if len(image.shape) == 3:
-        image = image.mean(axis=2)
-    xs, ys = find_edge(image) # I don't understand why the .t is needed!
-    return np.polyfit(xs, ys, 1)
-    """
-    gray_image = image.mean(axis=2)
+    gray_image = image.mean(axis=2) if len(image.shape) == 3 else image
     # start with a non-directional edge detection
     from scipy.ndimage.filters import gaussian_filter
     edges = gaussian_filter(gray_image, fuzz, order=(0,1))**2
@@ -111,15 +98,18 @@ def locate_edge(image, fuzz=10, refine=False):
     if Sxx > Syy: # the line is ~horizontal
         gradient = Sxy/Sxx
         intercept = cy - cx * gradient
-        horizontal = True
-        falling = np.sum(gray_image[y < x*gradient + intercept]) > 0.5*np.sum(gray_image)
+        return True, (gradient, intercept)
     else: # we have a vertical-ish line
         gradient = Sxy/Syy
         intercept = cx - cy * gradient
-        horizontal = False
-        falling = np.sum(gray_image[x < y*gradient + intercept]) > 0.5*np.sum(gray_image)
-    return line, horizontal, falling
+        return false, (gradient, intercept)
 
+        
+def edge_is_falling(image, line):
+    """Determine if an edge is white-to-black."""
+    gray_image = image.mean(axis=2) if len(image.shape) == 3 else image
+    return np.sum(gray_image[y < x*gradient + intercept]) > 0.5*np.sum(gray_image)
+        
 def resample_edge(image, line, fuzziness=5, subsampling=5):
     """Resample the edge of an image so it's exactly straight, increasing the resolution to preserve detail.
 
