@@ -51,7 +51,7 @@ import analyse_distortion
 
 #################### Rotate the image so the bars are X/Y aligned #############
 
-def reorient_image(image, horizontal, falling):
+def reorient_image(image, vertical, falling):
     """Flip or transpose an image.
     
     image: a 3D array representing a (colour) image
@@ -60,30 +60,57 @@ def reorient_image(image, horizontal, falling):
     
     Returns: image, flipped/transposed as requested.
     """
-    if not horizontal:
+    if vertical:
         image = image.transpose((1,0,2))  # if the edge is in the first array index, move it to the second
     if falling:
         image = image[:, ::-1, ...]  # for falling edges, flip the image so they're rising
     return image
     
-def locate_edge(image, fuzz=10):
+def locate_edge(image, fuzz=10, threshold=0.3):
     """Fit the peak gradients of the image with a straight line.
     
+    A non-directional first derivative of the image is taken (by applying
+    first-order Gaussian filters along X and Y, then summing the squares
+    of the results).  This should yield an image where the edge is a 
+    bright line.  A straight line is fitted to these pixels, using the
+    first and second moments of the intensity distribution.
+    
+    Later analysis functions expect the edge to be roughly horizontal 
+    (i.e. image[i,:] should be a step function) and increasing (so the
+    step function goes from black to white).  If the image should be 
+    transposed or flipped, "vertical" or "falling" will be set to True,
+    and the line returned will refer to the flipped/transposed image.
+    
+    Arguments:
+        image: numpy.array
+            a 2- or 3-dimensional numpy array representing the image.  Colour
+            images are converted to grayscale.
+        fuzz: float (optional, default 10)
+            the smoothing parameter in pixels, used for edge detection.
+        threshold: float (optional, default 0.3)
+            a cut-off value applied to distinguish the edge from
+            background noise, as a fraction of the maximum gradient value.
+    
     Returns: (horizontal, line)
-        horizontal: bool
-            Whether the line is closer to horizontal than vertical.
+        vertical: bool
+            Whether the line is closer to vertical than horizontal.  If so, later
+            analysis will require the image to be transposed so the line is horizontal.
+        falling: bool
+            If the edge runs white-to-black as y is increased, we will need to flip
+            the image along the y axis to ensure later functions are consistent.
         line: tuple of two floats (gradient, intercept)
-            The equation of the line.  If "horizontal", y=gradient*x + intercept.
-            If horizontal is false, then x=y*gradient + intercept.  x and y refer
-            to the first and second array indices of the image respectively.
+            The equation of the line.  y = x*gradient + intercept (the same as if we
+            had used ``numpy.polyfit()`` with ``order=1``).  NB x and y here refer
+            to the first and second indices of the image **after** flipping/transposing
+            as indicated by the first two variables
     """
     gray_image = image.mean(axis=2) if len(image.shape) == 3 else image
     # start with a non-directional edge detection
     from scipy.ndimage.filters import gaussian_filter
     edges = gaussian_filter(gray_image, fuzz, order=(0,1))**2
     edges += gaussian_filter(gray_image, fuzz, order=(1,0))**2
-    # background-subtract to remove noise
-    edges -= edges.max()*0.3
+    # background-subtract to remove bias due to nonzero background
+    edges -= edges.max()*threshold
     edges[edges<0] = 0
     # calculate moments of the image
     x = np.arange(edges.shape[0])[:,np.newaxis]
@@ -95,38 +122,20 @@ def locate_edge(image, fuzz=10):
     Sxx = expectation((x-cx)**2, edges)
     Syy = expectation((y-cy)**2, edges)
     Sxy = expectation((x-cx)*(y-cy), edges)
-    if Sxx > Syy: # the line is ~horizontal
-        gradient = Sxy/Sxx
-        intercept = cy - cx * gradient
-        return True, (gradient, intercept)
-    else: # we have a vertical-ish line
-        gradient = Sxy/Syy
-        intercept = cx - cy * gradient
-        return false, (gradient, intercept)
-
-        
-def edge_is_falling(image, line):
-    """Determine if an edge is white-to-black."""
-    gray_image = image.mean(axis=2) if len(image.shape) == 3 else image
-    return np.sum(gray_image[y < x*gradient + intercept]) > 0.5*np.sum(gray_image)
-        
-def resample_edge(image, line, fuzziness=5, subsampling=5):
-    """Resample the edge of an image so it's exactly straight, increasing the resolution to preserve detail.
-
-    image: the (3D) image to resample
-    line: [m, c] equation for the y value of the line as a function of x (y=mx + c)
-    fuzziness: guess at the PSF width.  We produce a line 10x wider than this (5 sigma either side)
-    subsampling: amount to increase resolution to allow sub-pixel sampling. 4-10 is about right, I think.
-
-    returns: an Nx(10 x fuzziness x subsampling) x 3 array with the line exactly halfway along it.
-    """
-    edge = np.zeros((image.shape[0], fuzziness*10*subsampling, image.shape[2]))
-    for i in range(image.shape[0]):
-        y = line[0]*i + line[1]
-        for j in range(subsampling):
-            ystart = int(y + j/subsampling) - 5*fuzziness
-            edge[i, j::subsampling, :] = image[i,ystart:ystart + fuzziness*10, :]
-    return edge
+    # For later analysis, it makes sense to ensure the edge is consistently oriented.
+    # First, make sure the edge is ~horizontal (the image should be transposed if not)
+    vertical = Syy > Sxx # True if the line is closer to x=const than y=const
+    if vertical: # the image should be transposed if the line isn't horizontal
+        x, y, cx, cy, Sxx, Syy = y, x, cy, cx, Syy, Sxx
+        gray_image = gray_image.T
+    gradient = Sxy/Sxx
+    intercept = cy - cx * gradient
+    # Next, make sure the edge is rising (black-to-white), image should be flipped in Y if not.
+    falling = np.sum(gray_image[y < x*gradient + intercept]) > 0.5*np.sum(gray_image)
+    if falling: # Update the line so it is correct for the flipped image
+        intercept = np.max(y) - intercept
+        gradient = -gradient
+    return vertical, falling, (gradient, intercept)
 
 def deduce_bayer_pattern(image, unit_cell=2):
     """Deduce which pixels in an image are nonzero, modulo a unit cell.
@@ -217,7 +226,8 @@ def find_esf(image, raw_image=None, fuzziness=10, subsampling=10, blocks=1):
     
     # Find the step location in each row of the image, then fit a straight line
     #xs, ys = find_edge((image/4).sum(axis=2), fuzziness=fuzziness)
-    line = locate_edge(image) #np.polyfit(xs, ys, 1)
+    vertical, falling, line = locate_edge(image) #np.polyfit(xs, ys, 1)
+    assert not vertical and not falling, "The edge is the wrong way round!"
     
     if subsampling > 1: # Check that the edge is slanted sufficiently to use subsampling
         try:
@@ -239,6 +249,10 @@ def find_esf(image, raw_image=None, fuzziness=10, subsampling=10, blocks=1):
         xcentre = (xslice.start + xslice.stop)/2.0
         ycentre = xcentre * line[0] + line[1]
         yslice = slice(round_to_bw(ycentre - 5*fuzziness), round_to_bw(ycentre + 5*fuzziness))
+        bv, bf, bline = locate_edge(image[xslice, yslice, :])
+        print("Line coefficients for this block: {}".format(bline))
+        if np.abs(bline[0] - line[0])*h//blocks > 1:
+            print("Warning: the edge gradient is more than a pixel out -- {} vs {}".format(bline, line))
         print("block at {}, {} has shape {}".format(xcentre, ycentre, raw_image[xslice, yslice, :].shape))
         esfs.append(average_edge(raw_image[xslice, yslice, :], line, subsampling=subsampling, bayer_pattern=bayer_pattern))
     if blocks == 1:
@@ -321,9 +335,9 @@ def analyse_file(fname, fuzziness=10, subsampling = 10, blocks = 11, plot=False,
         rgb_image = imread(fname)
     
     # ensure the images are black-to-white step functions along the second index
-    horizontal, falling = find_edge_orientation(rgb_image)
-    rgb_image = reorient_image(rgb_image, horizontal, falling)
-    raw_image = reorient_image(raw_image, horizontal, falling)
+    vertical, falling, line = locate_edge(rgb_image)
+    rgb_image = reorient_image(rgb_image, vertical, falling)
+    raw_image = reorient_image(raw_image, vertical, falling)
     
     # analyse the image to extract sections along the edge
     esfs, line = find_esf(rgb_image, raw_image, fuzziness=fuzziness, subsampling=subsampling, blocks=blocks)
