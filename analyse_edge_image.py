@@ -126,7 +126,7 @@ def locate_edge(image, fuzz=10, threshold=0.3):
     # First, make sure the edge is ~horizontal (the image should be transposed if not)
     vertical = Syy > Sxx # True if the line is closer to x=const than y=const
     if vertical: # the image should be transposed if the line isn't horizontal
-        x, y, cx, cy, Sxx, Syy = y, x, cy, cx, Syy, Sxx
+        x, y, cx, cy, Sxx, Syy = x.T, y.T, cy, cx, Syy, Sxx
         gray_image = gray_image.T
     gradient = Sxy/Sxx
     intercept = cy - cx * gradient
@@ -184,9 +184,11 @@ def average_edge(image, line, subsampling=10, bayer_pattern=np.array([[[True]]])
     cell of the Bayer pattern.  
     """
     xs = np.arange(image.shape[0]) # for convenience, X values of the image
+    if image.shape[1] % 2 == 1:
+        image = image[:,:-1,...] # we need an even height.
     
     # We need to make the average wider than one line to allow shifting
-    margin = subsampling * int(xs.shape[0]*np.abs(line[0]))//2 + 4*subsampling
+    margin = subsampling * int(xs.shape[0]*np.abs(line[0]))//2 + 5*subsampling
     # To take the average, we need the sum and the number of terms:
     total_intensity = np.zeros((image.shape[1]*subsampling + 2*margin, image.shape[2]))
     total_n = np.zeros_like(total_intensity)
@@ -198,13 +200,21 @@ def average_edge(image, line, subsampling=10, bayer_pattern=np.array([[[True]]])
     # Calculate the shift for each line in the image
     y_shifts = -(xs - xs.shape[0]/2)*line[0] # Use the fitted line
     dys = np.round(y_shifts*subsampling).astype(int)
-    for x, dy in zip(xs, dys):
+    ramp = np.linspace(0,1,subsampling)
+    row_weights = np.tile(np.concatenate([ramp, ramp[::-1]]), int(image.shape[1]/2))
+    for x, col_dy in zip(xs, dys):
         #y_shift = float(dy)/subsampling
         #ax.plot(np.arange(image.shape[1]/2)*2 + y_shift, image[x,(x % 2)::2,1])
-        rr = slice(margin+dy, -margin+dy) # this aligns our row with the others
-        total_intensity[rr,:] += np.repeat(image[x,:,:], subsampling, axis=0)
-        total_n[rr] += np.repeat(bayer_col[x % bw, :, :], subsampling, axis=0)
-    return total_intensity[margin:-margin, :] / total_n[margin:-margin, :]
+        for j in range(2):
+            dy = col_dy + (j - 0.5)*subsampling
+            rr = slice(margin+dy, -margin+dy) # this aligns our row with the others
+            total_intensity[rr,:] += np.repeat(image[x,j::2,:], subsampling*2, axis=0) * row_weights[:,np.newaxis]
+            total_n[rr] += np.repeat(bayer_col[x % bw, j::2, :], subsampling*2, axis=0) * row_weights[:,np.newaxis]
+    edge = total_intensity[margin:-margin, :] / total_n[margin:-margin, :]
+    if np.any(np.isnan(edge[subsampling:-subsampling,...])):
+        print("Warning: NaNs generated when subsampling the edge.  Maybe it's too straight? "
+              "NaNs: {}".format(np.argwhere(np.isnan(edge))))
+    return np.nan_to_num(edge)
 
     
 def find_esf(image, raw_image=None, fuzziness=10, subsampling=10, blocks=1):
@@ -231,11 +241,12 @@ def find_esf(image, raw_image=None, fuzziness=10, subsampling=10, blocks=1):
     
     if subsampling > 1: # Check that the edge is slanted sufficiently to use subsampling
         try:
-            assert np.abs(line[0]*image.shape[0]/blocks) > 4, "Error: to use subsampling you must have a slanted " \
+            assert np.abs(line[0]*image.shape[0]/blocks) > 1, "Error: to use subsampling you must have a slanted " \
                                                 "edge, {} is too straight for image {}!".format(line, image.shape)
         except Exception as e:
             #print("y values: ".format(ys))
-            raise e
+            #raise e
+            print("Subsampling warning: {}".format(e))
 
     esfs = []
     h = raw_image.shape[0]

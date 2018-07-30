@@ -44,14 +44,13 @@ def cached_psfs(folder, fnames):
 def analyse_zstack(folder):
     """Find the point spread function of each image in a Z stack series"""
     # The folder usually contains raw and non-raw versions - use the raw ones if possible
-    try:
-        fnames = [f for f in os.listdir(folder) if f.startswith("edge_zstack") and f.endswith(".jpg") and "raw" in f]
-        assert len(fnames) > 0
-    except:
-        print("Falling back to non-raw images.")
-        fnames = [f for f in os.listdir(folder) if f.startswith("edge_zstack") and f.endswith(".jpg")]
+    fnames = [f for f in os.listdir(folder) if f.endswith(".jpg")]
+    assert len(fnames) > 0, "There were no files in the folder '{}'".format(folder)
+    if len([f for f in fnames if "raw" in f]) > 0:
+        fnames = [f for f in fnames if "raw" in f]
     # Extract the stage position from the filenames
     positions = np.array([analyse_distortion.position_from_filename(f) for f in fnames])
+    print(positions)
     assert np.all(np.var(positions, axis=0)[:2] == 0), "Only the Z position should change!"
     # extract the PSFs
     try:
@@ -93,10 +92,8 @@ if __name__ == "__main__":
         assert os.path.isdir(path)
     except:
         print("Usage: {} <folder> [<folder> ...]".format(sys.argv[0]))
-        print("This script expects arguments that are folders.  Inside each folder")
-        print("should be a number of subfolders, containing jpeg files of edge images.")
-        print("This scripts creates a number of PDF plots based on said images.")
+        print("This script expects arguments that are folders, containing jpeg files of edge images.")
+        print("This scripts creates a number of PDF plots based on said images, per folder.")
     
     for dir in sys.argv[1:]:
-        for subdir in os.listdir(dir):
-            analyse_zstack(os.path.join(dir, subdir))
+        analyse_zstack(dir)
