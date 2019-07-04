@@ -4,8 +4,9 @@ Analyse a folder of z-stacks of edge images, to recover resolution and field cur
 
 """
 from __future__ import print_function
-from matplotlib import pyplot as plt
 import matplotlib
+matplotlib.use('Agg')
+from matplotlib import pyplot as plt
 from matplotlib.gridspec import GridSpec
 
 import numpy as np

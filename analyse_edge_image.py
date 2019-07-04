@@ -12,7 +12,8 @@ This program expects as input an image containing a single black/white edge.  It
 1. determine the direction (horizontal/vertical) and sign (black then white or white then black) of the edge
 2. measure the angle of the edge (for the analysis to be valid the angle should be close to but not exactly
     horizontal or vertical)
-3. average along the edge (or a specified portion thereof) to reduce noise and allow pixel subsampling
+3. align rows in the image so that the edge is always at x=0
+4. combine all the rows together using a smoothing spline
 4. take the gradient
 5. compute the MTF or resolution by a couple of methods
 
@@ -20,9 +21,10 @@ NB a 3-channel colour image is assumed.  Pad grayscale images to be n x m x 3 to
 
 """
 from __future__ import print_function
+import matplotlib
+matplotlib.use('Agg')
 from matplotlib import pyplot as plt
 import matplotlib.patches
-import matplotlib
 from matplotlib.gridspec import GridSpec
 
 # from skimage import data
@@ -38,6 +40,7 @@ import numpy.fft as fft
 import scipy.ndimage
 import scipy.interpolate
 import scipy.optimize
+from scipy.interpolate import LSQUnivariateSpline
 import itertools
 import os
 import sys
@@ -163,67 +166,143 @@ def deduce_bayer_pattern(image, unit_cell=2):
             bayer_pattern[i,j,:] = np.sum(np.sum(image[i::w, j::h, :], axis=0), axis=0) > 0
     return bayer_pattern
     
-def average_edge(image, line, subsampling=10, bayer_pattern=np.array([[[True]]])):
-    """Average along an edge, returning a subsampled marginal distribution.
+
+def extract_aligned_edge(raw_image, width, channel=1, force_tx=None, thresholds=(0.25,0.75)):
+    """Extract x, I coordinates for each row of the image, aligned to the edge
     
-    image: the edge image to average.  Should be a vertical black-white edge.
-        This should be a 3D numpy array - though the third dim may be length 1
-    line: the coefficients of a straight line describing the edge - 2 elements
-    subsampling: how many bins each pixel is divided into.
-    bayer_pattern: 3D boolean array representing the Bayer pattern.  Default
-        value will assume every pixel has valid values for every colour channel.
+    raw_image should be an NxMx3 RGB image, with the dark-bright transition along the middle axis
+    width will be the width of the output rows (should be less than the width of the raw image)
+        NB this width is relative to the original image - as each row will only contain the 
+        pixels with the selected colour, the rows will have half this many points.
+    channel is the channel of the image to extract (0-2)
+    thresholds specifies the region of I (relative to min/max)
+    
+    Returns: [(x, I, tx)]
+    x and I are cropped 1D arrays, each representing the x and I coordinates for one row.  The range of x
+    will be approximately -widdth/2 to width/2, though there will usually be width/2 points.  tx is the 
+    x coordinate where the transition was detected (i.e. the shift between the x coordinates and the pixels
+    of the original image).
+    """
+    bayer = deduce_bayer_pattern(raw_image)[:,:,channel]
+    aligned_rows = []
+    for i in range(raw_image.shape[0]):
+        row_bayer = bayer[i % bayer.shape[0], :]
+        if np.any(row_bayer): # if there are active pixels of this channel in this row
+            x = np.argmax(row_bayer) # find the position of the first relevant pixel in the row
+            active_pixel_slice = slice(x, None, bayer.shape[1]) 
+                # This slice object takes every other pixel, starting at x (x==0 or 1)
+
+            # Extract the position and intensity of all of the pixels that are active
+            x = np.arange(raw_image.shape[1])[active_pixel_slice]
+            I = raw_image[i,active_pixel_slice,channel]
+
+            # Crop out the part where it goes from black to white (from 25% to 75% intensity)
+            normI = (I - np.min(I) + 0.0)/(np.max(I)-np.min(I)) # NB the +0.0 converts to floating point
+            start = np.argmax(normI > thresholds[0])
+            stop = np.argmax(normI > thresholds[1])
+
+            # Fit a line and find the point where it crosses 0.5
+            gradient, intercept = np.polyfit(x[start:stop], normI[start:stop], 1)
+            transition_x = (0.5 - intercept)/gradient # 0.5 = intercept + gradient*xt
+            
+            # Now, crop out a region centered on the transition
+            start = np.argmax(x > transition_x - width/2.0)
+            #stop = np.argmax(x > transition_x + width/2.0)
+            stop = start + width//row_bayer.shape[0] # Should do the same as above, but guarantees length.
+            aligned_rows.append((x[start:stop] - transition_x, I[start:stop], transition_x))
+    return aligned_rows
+
+def sorted_x_and_I(aligned_rows):
+    """Extract all x and I coordinates from a set of rows, in ascending x order
+    
+    Arguments: 
+        aligned_rows: the output from extract_aligned_edge
         
     Returns:
-        subsampled_edge: a 2D array with the edge function for each colour.
-        
-    ==============
-    Bayer patterns
-    ==============
-    * If bayer_pattern is None, we assume the camera has true RGB pixels.
-    * If bayer_pattern is a scalar, it should be the side length of the unit
-    cell of the Bayer pattern.  
-    """
-    xs = np.arange(image.shape[0]) # for convenience, X values of the image
-    if image.shape[1] % 2 == 1:
-        image = image[:,:-1,...] # we need an even height.
-    
-    # We need to make the average wider than one line to allow shifting
-    margin = subsampling * int(xs.shape[0]*np.abs(line[0]))//2 + 5*subsampling
-    # To take the average, we need the sum and the number of terms:
-    total_intensity = np.zeros((image.shape[1]*subsampling + 2*margin, image.shape[2]))
-    total_n = np.zeros_like(total_intensity)
-    bw, bh, n_channels = bayer_pattern.shape
-    # Repeat the bayer pattern to make up a whole column (NB it's >1 row wide)
-    bayer_col = np.tile(bayer_pattern, (1,image.shape[1]//bayer_pattern.shape[1]+1,1))
-    bayer_col = bayer_col[:, :image.shape[1], :] # In case the image is not an integer number of cells
-    
-    # Calculate the shift for each line in the image
-    y_shifts = -(xs - xs.shape[0]/2)*line[0] # Use the fitted line
-    dys = np.round(y_shifts*subsampling).astype(int)
-    ramp = np.linspace(0,1,subsampling)
-    row_weights = np.tile(np.concatenate([ramp, ramp[::-1]]), int(image.shape[1]/2))
-    for x, col_dy in zip(xs, dys):
-        #y_shift = float(dy)/subsampling
-        #ax.plot(np.arange(image.shape[1]/2)*2 + y_shift, image[x,(x % 2)::2,1])
-        for j in range(2):
-            dy = col_dy + (j - 0.5)*subsampling
-            rr = slice(margin+dy, -margin+dy) # this aligns our row with the others
-            total_intensity[rr,:] += np.repeat(image[x,j::2,:], subsampling*2, axis=0) * row_weights[:,np.newaxis]
-            total_n[rr] += np.repeat(bayer_col[x % bw, j::2, :], subsampling*2, axis=0) * row_weights[:,np.newaxis]
-    edge = total_intensity[margin:-margin, :] / total_n[margin:-margin, :]
-    if np.any(np.isnan(edge[subsampling:-subsampling,...])):
-        print("Warning: NaNs generated when subsampling the edge.  Maybe it's too straight? "
-              "NaNs: {}".format(np.argwhere(np.isnan(edge))))
-    return np.nan_to_num(edge)
+        sorted_x, sorted_I, txs
 
+    1D numpy arrays of x and I, in ascending x order, and an array of all the original x positions
+    (the mean of txs tells you where the edge was before alignment)
+    """
+    # First, extract the x and I coordinates into separate arrays and flatten them.
+    xs, Is, txs = zip(*aligned_rows)
+    all_x = np.array(xs).flatten()
+    all_I = np.array(Is).flatten()
+
+    # Points must be sorted in ascending order in x
+    order = np.argsort(all_x)
+    sorted_x = all_x[order]
+    sorted_I = all_I[order]
+
+    # If any points are the same, spline fitting fails - so add a little noise
+    while np.any(np.diff(sorted_x) <= 0):
+        i = np.argmin(np.diff(sorted_x))
+        sorted_x[i+1] += 0.0001 # 0.0001 is in units of pixels, i.e. insignificant.
+    return sorted_x, sorted_I, txs
+
+def average_edge_spline(sorted_x, sorted_I, dx=0.1, knot_spacing=2.0, crop=10):
+    """Average the edge, using a spline to smooth it.
+
+    Arguments:
+        sorted_x: a 1D array, in ascending order, of x coordinates
+        sorted_I: a corresponding array of intensity coordinates
+        dx: the resolution at which to interpolate (default: 0.1 pixel)
+        knot_spacing: distance between the knots of the interpolating spline.
+            (default: 2.0).  This sets the smoothness we require, larger=smoother.
+        crop: the returned interpolated array will be smaller than the input arrays
+            by this amount (default 10 pixels).  NB this is in the same units as
+            sorted_x, and doesn't correspond either to points in sorted_x or points
+            in the returned interpolated array.
     
-def find_esf(image, raw_image=None, fuzziness=10, subsampling=10, blocks=1):
+    Returns: interpolated_x, interpolated_I
+        An array of interpolated x coordinates and an array of correspoinding I values.
+    """
+    xmin, xmax = np.min(sorted_x), np.max(sorted_x)
+    ks = knot_spacing
+    spline = LSQUnivariateSpline(sorted_x, sorted_I, np.arange(xmin + ks, xmax - ks, ks))
+    sx = np.arange(xmin + crop, xmax - crop, dx)
+    return sx, spline(sx)
+
+def numerical_diff(x, y, crop=0, sqrt=False):
+    """Numerically differentiate a vector of equally spaced values
+
+    Arguments:
+        x: the independent variable, assumed to be evenly spaced
+        y: the dependent variable to be differentiated
+        crop: return a shorter array than the input by removing
+            this many points from the start and end (default: 0)
+        sqrt: instead of calculating d/dx y, calculate (d/dx y**0.5)**2
+            to recover the point spread function from an edge (because
+            it's the underlying complex function, and not the intensity,
+            that we really want to differentiate).
+    
+    Returns: x_midpoints, diff_y
+        The two 1D arrays are the mid-points of the x coordinates (i.e. 
+        the X coordinates of the differentiated y values), and the 
+        numerically differentiated y values (scaled by the difference 
+        between x points to approximate the true derivative).
+    """
+    crop = np.argmax(x > np.min(x) + crop)
+    if crop > 0:
+        cropped_x = x[crop:-crop]
+    mid_x = (cropped_x[1:] + cropped_x[:-1])/2.0
+
+    if sqrt:
+        diff_y = (np.diff((y - np.min(y))**0.5)/np.mean(np.diff(x)))**2
+    else:
+        diff_y = np.diff(y - np.min(y))/np.mean(np.diff(x))
+    if crop > 0:
+        diff_y = diff_y[crop:-crop]
+        
+    return mid_x, diff_y
+        
+def find_esf(image, raw_image=None, dx=0.1, blocks=1):
     """Given an oriented image, calculate the PSF from the edge response.
 
-    image: the image to use for finding the edge, etc. - should be debayered.
-    raw_image: if a non-debayered image is available, specify it here.  Defaults to using image.
-    fuzziness: sets the smoothing parameter - in general, should be ~ the expected resolution in pixels.
-    subsampling: how much sub-pixel sampling to do (10 is reasonable)
+    Arguments:
+        image: the image to use for finding the edge, as an NxMx3 RGB array
+        raw_image: if a non-demosaiced image is available (as an NxMx3 array), 
+            specify it here.  Defaults to using image.
     blocks: how many chunks to split the image into before calculating PSFs for each chunk.
     
     Returns a (blocks, 10*fuzziness-1, 3) array with the PSF in 3 colours.
@@ -239,46 +318,37 @@ def find_esf(image, raw_image=None, fuzziness=10, subsampling=10, blocks=1):
     vertical, falling, line = locate_edge(image) #np.polyfit(xs, ys, 1)
     assert not vertical and not falling, "The edge is the wrong way round!"
     
-    if subsampling > 1: # Check that the edge is slanted sufficiently to use subsampling
-        try:
-            assert np.abs(line[0]*image.shape[0]/blocks) > 1, "Error: to use subsampling you must have a slanted " \
-                                                "edge, {} is too straight for image {}!".format(line, image.shape)
-        except Exception as e:
-            #print("y values: ".format(ys))
-            #raise e
-            print("Subsampling warning: {}".format(e))
+    try:
+        assert np.abs(line[0]*image.shape[0]/blocks) > 1, "the edge is insufficiently slanted.
+    except Exception as e:
+        #print("y values: ".format(ys))
+        #raise e
+        print("Warning: {}".format(e))
+        print("The edge only moves {} of a pixel over the image blocks".format(line[0]*image.shape[0]/blocks))
 
     esfs = []
     h = raw_image.shape[0]
-    def round_to_bw(x):
-        """Round a number to an integer multiple of the Bayer pattern width"""
-        return int(np.round(x/bayer_pattern.shape[1])) * bayer_pattern.shape[1]
     for i in np.arange(blocks):
         # The PSFs are calculated for each "block" of the image
         # We crop blocks out at uniformly spaced heights, centred on the edge
         xslice = slice((i * h)//blocks, ((i+1) * h)//blocks) # the section of the image we're analysing
         xcentre = (xslice.start + xslice.stop)/2.0
         ycentre = xcentre * line[0] + line[1]
-        yslice = slice(round_to_bw(ycentre - 5*fuzziness), round_to_bw(ycentre + 5*fuzziness))
-        bv, bf, bline = locate_edge(image[xslice, yslice, :])
-        print("Line coefficients for this block: {}".format(bline))
-        if np.abs(bline[0] - line[0])*h//blocks > 1:
-            print("Warning: the edge gradient is more than a pixel out -- {} vs {}".format(bline, line))
+        yslice = slice(int(ycentre - 100), int(ycentre + 100))
         print("block at {}, {} has shape {}".format(xcentre, ycentre, raw_image[xslice, yslice, :].shape))
-        esfs.append(average_edge(raw_image[xslice, yslice, :], line, subsampling=subsampling, bayer_pattern=bayer_pattern))
+        edge_rgb = []
+        for channel in range(3):
+            # Align the rows so the transitions are all at x=0
+            aligned_rows = extract_aligned_edge(raw_image[xslice, yslice, :], width=100, channel=channel, dx=dx)
+            # Then average the rows together using a smoothing spline
+            sorted_x, sorted_I, txs = sorted_x_and_I(aligned_rows)
+            x, I = average_edge_spline(sorted_x, sorted_I)
+            edge_rgb.append((x, I, np.mean(txs)))
+        esfs.append(edge_rgb)
     if blocks == 1:
         return esfs[0], line
     else:
         return np.array(esfs), line
-
-def plot_psf(psf, ax=None, x=None, xlabel="position/pixels", subsampling=1):
-    if ax is None:
-        f, ax = plt.subplots(1,1)
-    if x is None:
-        x = np.arange(psf.shape[0])/subsampling
-    for i, col in enumerate(['red', 'green', 'blue']):
-        ax.plot(x, psf[:, i], color=col)
-    ax.set_xlabel(xlabel)
 
 def inset_image(fig_or_ax, image, line=None, horizontal=False, flip_line=False):
     """Display a thumbnail of the image, with the edge overlaid as a check."""
@@ -298,34 +368,25 @@ def inset_image(fig_or_ax, image, line=None, horizontal=False, flip_line=False):
             x, y = y, x
         ax2.plot(x, y, 'r-')
 
-def find_fwhm(psf, annotate_ax=None, interp=10, subsampling=1):
-    ss = subsampling
-    fwhm = np.zeros(psf.shape[1])
-    for i in range(fwhm.shape[0]):
-        y = psf[:,i]
-        if interp>1: #use basic linear interpolation to improve resolution...
-            x = np.arange(len(y))
-            xi = np.arange(len(y)*interp)/interp
-            y = np.interp(xi, x, y)
-        threshold = np.max(y) / 2
-        ileft = np.argmax(y > threshold)/interp
-        iright = (len(y) - 1 - np.argmax(y[::-1] > threshold))/interp
-        fwhm[i] = iright - ileft
-        if annotate_ax is not None:
-            h = np.max(psf)
-            annotate_ax.annotate("fwhm {0:.1f}".format(fwhm[i]/ss),
-                                 xy=(ileft/ss, y[int(iright*interp)]),
-                                 xytext=(3/ss, h/2 + (i-1)*h/10),
-                                 arrowprops = dict(facecolor=annotate_ax.lines[i].get_color(), shrink=0))
-    return fwhm/ss
+def find_fwhm(x, I, zerolevel=0, annotate_ax=None, color="black", text_y=None):
+    y = I
+    threshold = (np.max(y) - zerolevel) / 2 + zerolevel
+    ileft = np.argmax(y > threshold)
+    iright = (len(y) - 1 - np.argmax(y[::-1] > threshold))
+    fwhm = x[iright] - x[ileft]
+    if annotate_ax is not None:
+        annotate_ax.annotate("fwhm {0:.1f}".format(fwhm),
+                                xy=(x[ileft], threshold),
+                                xytext=(np.min(x), threshold if text_y is None else text_y),
+                                arrowprops = dict(facecolor=color, shrink=0),
+                                color=color,)
+    return fwhm
     
-def analyse_file(fname, fuzziness=10, subsampling = 10, blocks = 11, plot=False, save_plot=False):
+def analyse_file(fname, fuzziness=10, blocks = 11, plot=False, save_plot=False):
     """Analyse one edge image to determine PSF normal to the edge.
     
     fname: string
         the file to be analysed, as an absolute or relative path
-    subsampling: int (default 1)
-        whether to up-sample the image to get a smoother PSF - 1 means no subsampling
     blocks: int (default 11)
         the image is divided into equally-sized blocks along the edge, and the PSF
         is calculated for each block.  Useful when determining field curvature.
@@ -351,30 +412,47 @@ def analyse_file(fname, fuzziness=10, subsampling = 10, blocks = 11, plot=False,
     raw_image = reorient_image(raw_image, vertical, falling)
     
     # analyse the image to extract sections along the edge
-    esfs, line = find_esf(rgb_image, raw_image, fuzziness=fuzziness, subsampling=subsampling, blocks=blocks)
-    psfs = scipy.ndimage.gaussian_filter1d(esfs, subsampling/2, order=1, axis=1, mode="nearest")
+    esfs, line = find_esf(rgb_image, raw_image, blocks=blocks)
+    # Each ESF is a length-3 list, containing a tuple for each channel, of:
+    #   * x coordinates (with the edge at zero)
+    #   * I coordinates (same length as x)
+    #   * the mean pixel position, in the original image, of the edge
+
+    psfs = []
+    for esf in esfs:
+        psf = []
+        for x, I, centre_x in esf:
+            psf.append((numerical_diff(x, I, sqrt=True, crop=10)))
+        psfs.append(psf)
 
     if plot or save_plot:
         with matplotlib.rc_context(rc={"font.size":6}):
             print(" plotting...",end="")
-            fig = plt.figure(figsize=(12,9), )
+            fig, ax = plt.subplots(1, 2, figsize=(6,9))
             fig.suptitle(fname)
-            nrows = int(np.floor(np.sqrt(blocks + 1)))
-            ncols = int(np.ceil(float(blocks + 1)/nrows))
-            gs = GridSpec(nrows, ncols + 1) # we'll plot things in a grid.
             
-            image_ax = fig.add_subplot(gs[:,0])
+            # Plot the image on the left, and overlay the fitted line
+            image_ax = ax[0]
             ys = np.arange(rgb_image.shape[0])
             xs = line[0]*ys + line[1]
             image_ax.imshow(rgb_image[:, int(np.min(xs) - 5*fuzziness):int(np.max(xs) + 5*fuzziness), ...])
             image_ax.xaxis.set_visible(False)
             image_ax.yaxis.set_visible(False)
             image_ax.plot(xs - (np.min(xs) - 5*fuzziness), ys, color="red", dashes=(2,8))
-            for i in range(blocks):
-                ax = fig.add_subplot(gs[i//ncols, 1 + (i % ncols)])
-                plot_psf(psfs[i,...], ax=ax, subsampling=subsampling)
-                ax.set_title("PSF {}".format(i))
-                find_fwhm(psfs[i,...], annotate_ax=ax, subsampling=subsampling)
+
+            # Display the PSF for each block of the image
+            psf_ax = ax[1]
+            psf_max = [0, 0, 0]
+            for psf in psfs:
+                for channel, (x, I) in enumerate(psf):
+                    psf_max[channel] = max(psf_max[channel], np.max(I))
+
+            for i, psf in enumerate(psfs):
+                for channel, col, (x, I) in zip(range(3), ['red', 'green', 'blue'], psf):
+                    offset =  i*0.66
+                    normI = I/psf_max[channel] + offset
+                    psf_ax.plot(x, normI, color=col)
+                    find_fwhm(x, normI, zerolevel=offset, annotate_ax=psf_ax, color="black", text_y=offset+(channel+1)*0.1)
                 centre_y = rgb_image.shape[0]*(i+0.5)/blocks
                 image_ax.annotate(str(i), xy=(line[1]+line[0]*centre_y, centre_y))
             fig.tight_layout()
@@ -382,24 +460,24 @@ def analyse_file(fname, fuzziness=10, subsampling = 10, blocks = 11, plot=False,
                 fig.savefig(fname + "_analysis.pdf")
     print(" done.")
     if plot:
-        return fig, psfs, esfs, subsampling
+        return fig, psfs, esfs
     else:
-        return psfs, psfs, esfs, subsampling
+        return psfs, psfs, esfs
 
 
 def analyse_files(fnames, output_dir=".", **kwargs):
     """Analyse a number of files.  kwargs passed to analyse_file"""
-    psf_list = []
-    esf_list = []
+    spread_functions = {}
     with PdfPages(os.path.join(output_dir, "edge_analysis.pdf")) as pdf:
         for fname in fnames:
-            fig, psfs, esfs, subsampling = analyse_file(fname, plot=True, **kwargs)
+            fig, psfs, esfs = analyse_file(fname, plot=True, **kwargs)
             pdf.savefig(fig)
-            psf_list.append(psfs)
-            esf_list.append(esfs)
+            spread_functions[fname] = {"psfs": psfs, "esfs": esfs}
             plt.close(fig)
-    np.savez(os.path.join(output_dir, "edge_analysis.npz"), filenames=fnames, psfs=psf_list, esfs=esf_list, subsampling=subsampling)
-    return np.array(psf_list), np.array(esf_list), subsampling
+    with open(os.path.join(output_dir, "spread_functions.yaml"), 'w') as outfile:
+        yaml.dump({f: {"esfs": e, "psfs": p} for f, e, p in spread_functions}, outfile)
+
+    return spread_functions
     
 def edge_image_fnames(folder):
     """Find all the images in a folder that look like edge images"""
@@ -435,9 +513,9 @@ if __name__ == '__main__':
             print("Analysing files...")
             analyse_files(fnames)
         for folder in folders:
-            try:
+            #try:
                 print("\nAnalysing folder: {}".format(folder))
                 analyse_files(edge_image_fnames(folder), output_dir=folder)
-            except Exception as e:
-                print("ERROR: {}".format(e))
-                print("Aborting this folder.\n")
+            #except Exception as e:
+            #    print("ERROR: {}".format(e))
+            #    print("Aborting this folder.\n")
