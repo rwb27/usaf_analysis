@@ -46,6 +46,7 @@ import os
 import sys
 import re
 import os.path
+import yaml
 from skimage.io import imread
 from matplotlib.backends.backend_pdf import PdfPages
 from analyse_distortion import find_edge_orientation, find_edge, reduce_1d
@@ -319,7 +320,7 @@ def find_esf(image, raw_image=None, dx=0.1, blocks=1):
     assert not vertical and not falling, "The edge is the wrong way round!"
     
     try:
-        assert np.abs(line[0]*image.shape[0]/blocks) > 1, "the edge is insufficiently slanted.
+        assert np.abs(line[0]*image.shape[0]/blocks) > 1, "The edge is insufficiently slanted."
     except Exception as e:
         #print("y values: ".format(ys))
         #raise e
@@ -339,10 +340,10 @@ def find_esf(image, raw_image=None, dx=0.1, blocks=1):
         edge_rgb = []
         for channel in range(3):
             # Align the rows so the transitions are all at x=0
-            aligned_rows = extract_aligned_edge(raw_image[xslice, yslice, :], width=100, channel=channel, dx=dx)
+            aligned_rows = extract_aligned_edge(raw_image[xslice, yslice, :], width=100, channel=channel)
             # Then average the rows together using a smoothing spline
             sorted_x, sorted_I, txs = sorted_x_and_I(aligned_rows)
-            x, I = average_edge_spline(sorted_x, sorted_I)
+            x, I = average_edge_spline(sorted_x, sorted_I, dx=dx)
             edge_rgb.append((x, I, np.mean(txs)))
         esfs.append(edge_rgb)
     if blocks == 1:
@@ -475,7 +476,7 @@ def analyse_files(fnames, output_dir=".", **kwargs):
             spread_functions[fname] = {"psfs": psfs, "esfs": esfs}
             plt.close(fig)
     with open(os.path.join(output_dir, "spread_functions.yaml"), 'w') as outfile:
-        yaml.dump({f: {"esfs": e, "psfs": p} for f, e, p in spread_functions}, outfile)
+        yaml.dump({f: {"esfs": e, "psfs": p} for f, (e, p) in spread_functions.items()}, outfile)
 
     return spread_functions
     
