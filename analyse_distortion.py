@@ -57,7 +57,7 @@ def find_edge_orientation(image, fuzziness = 5):
         variances.append(np.var(marginal))
         slopes.append(np.polyfit(np.arange(len(marginal)), marginal, 1)[0])
     horizontal = variances[1] < variances[0]
-    falling = slopes[0 if horizontal else 1] < 01
+    falling = slopes[0 if horizontal else 1] < 0
     return horizontal, falling
 
 def find_edge(image, fuzziness = 5, smooth_x = 5, plot=False):
